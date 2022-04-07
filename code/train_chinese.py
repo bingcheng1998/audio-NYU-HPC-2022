@@ -116,6 +116,25 @@ decoder = GreedyCTCDecoder(labels=labels)
 transcript = decoder(emission)
 print(transcript)
 
+# ---------------------- Chinese -----------------------
+
+initial_table = ['b', 'p', 'm', 'f',
+                'd', 't', 'n', 'l',
+                'g', 'k', 'h',
+                'j', 'q', 'x',
+                'zh', 'ch', 'sh', 'r', 'z', 'c', 's']
+
+finals_table = [['i', 'u', 'v'], # 可以与下面的配成 iao, ue
+                ['a', 'o', 'e', 
+                'ai', 'ei', 'ao',
+                'ou', 'an', 'en',
+                'ang', 'eng', 'ong', 'er']]
+
+labels = ['-','|']+initial_table + finals_table[0] + finals_table[1]
+look_up = {s: i for i, s in enumerate(labels)} # 字母转数字
+
+decoder = GreedyCTCDecoder(labels=labels)
+
 """# Transfer Learning in Chinese"""
 
 # ! pip install pypinyin
@@ -125,13 +144,36 @@ from pypinyin import lazy_pinyin, Style
 
 
 def chinese2pinyin(text):
-    pinyin = lazy_pinyin(text, errors=lambda x: u'-', strict=False)
-    if (pinyin[-1]=='-'):
+    initials = lazy_pinyin(text, strict=True, style=Style.INITIALS, errors=lambda x: u'-')
+    finals = lazy_pinyin(text, strict=True, style=Style.FINALS, errors=lambda x: u'-')
+    pinyin = []
+    for i in range(len(finals)):
+        pinyin.append('|')
+        if (initials[i] == '-'):
+            continue
+        if (len(initials[i])!=0): pinyin.append(initials[i])
+        if finals[i] == 'in':
+            finals[i] = 'ien'
+        if finals[i] == 'vn':
+            finals[i] = 'ven'
+        if finals[i] == 'ing':
+            finals[i] = 'ieng'
+        if len(finals[i])==0:
+            finals[i] = 'n'
+        if finals[i][0] in finals_table[0]:
+            pinyin.append(finals[i][0])
+            if len(finals[i]) != 1:
+                pinyin.append(finals[i][1:])
+        else:
+            pinyin.append(finals[i])
+    pinyin = pinyin[1:]
+    if pinyin[-1] == '-':
+        pinyin = pinyin[:-2]
+    if pinyin[-1] == '|':
         pinyin = pinyin[:-1]
-    pinyin_target = '|'.join(pinyin)
-    return pinyin_target.upper()
+    return pinyin
 
-chinese2pinyin("世界很美好")
+print(''.join(chinese2pinyin("绿色的温水，迂回的乌烟，流过。啊！哇！妞儿归去！")))
 
 
 def label2id(str):
@@ -143,7 +185,7 @@ def id2label(idcs):
 
 
 print(
-    label2id(chinese2pinyin("世界很美好")), id2label(label2id(chinese2pinyin("世界很美好")))
+    label2id(chinese2pinyin("美好，我很开心！")), ','.join(id2label(label2id(chinese2pinyin("美好，我很开心！"))))
 )
 
 from torch.utils.data import Dataset, DataLoader
@@ -190,22 +232,20 @@ class AudioDataset(Dataset):
 
         return sample
 
-
 audio_dataset = AudioDataset(meta_data, data_path, sample_rate=16000)
-audio_dataset[0]
 
-with torch.no_grad():
-    i = 1
-    sample = audio_dataset[i]
-    print(i, sample['audio'].shape, sample['text'])
+#---------------- Adapt Model -----------------------
 
-    waveform = sample['audio']
-    emissions, _ = model(waveform.to(device))
-    emissions = torch.log_softmax(emissions, dim=-1)
+print(model.aux)
 
-emission = emissions[0].cpu().detach().unsqueeze(1)
-
-print(emission.shape, emission[90][0])
+model = bundle.get_model()
+for param in model.parameters():
+    param.requires_grad = False
+model.aux = torch.nn.Linear(in_features=model.aux.in_features, out_features=len(labels), bias=True)
+# torch.nn.init.xavier_normal(model.aux.weight)
+for param in model.aux.parameters():
+    param.requires_grad = True
+model = model.to(device)
 
 with torch.no_grad():
     i = 2
@@ -223,37 +263,30 @@ with torch.no_grad():
     Input_lengths = (emissions.shape[0],)
     Target_lengths = (target.shape[-1],)
     loss = ctc_loss(emissions, target, Input_lengths, Target_lengths)
-
+    
 emission = emissions.cpu().detach()
 transcript = decoder(emission)
 transcript, chinese2pinyin(sample['text']), loss.item()
+print('audio_dataset size', len(audio_dataset))
 
-len(audio_dataset)
 
-print(model.aux)
 
-model = bundle.get_model()
-for param in model.parameters():
-    param.requires_grad = False
-model.aux = torch.nn.Linear(in_features=model.aux.in_features, out_features=model.aux.out_features, bias=True)
-# torch.nn.init.xavier_normal(model.aux.weight)
-for param in model.aux.parameters():
-    param.requires_grad = True
-model = model.to(device)
-
-optimizer = torch.optim.SGD(model.aux.parameters(), lr=0.01, momentum=0.9)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
+optimizer = torch.optim.SGD(model.aux.parameters(), lr=0.001, momentum=0.9)
+# scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
 # optimizer = torch.optim.Adam(model.aux.parameters(), lr=0.01)
+
 """使用DataLoader按照批次加载"""
+from os.path import exists
 
 LOAD_PATH = './checkpoint/model.pt'
-print()
-checkpoint = torch.load(LOAD_PATH)
-model.aux.load_state_dict(checkpoint['model_state_dict'])
-optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-epoch = checkpoint['epoch']
-loss = checkpoint['loss']
-print(epoch, loss)
+if exists(LOAD_PATH):
+    print('file',LOAD_PATH,'exist, load checkpoint...')
+    checkpoint = torch.load(LOAD_PATH)
+    model.aux.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
+    loss = checkpoint['loss']
+    print(epoch, loss)
 
 batch_size = 8
 def collate_wrapper(batch):
@@ -264,7 +297,6 @@ dataloader = DataLoader(audio_dataset, batch_size=batch_size,
                         shuffle=True, num_workers=0, collate_fn=collate_wrapper)
 
 # iter(dataloader).next()
-
 def test(k):
     model.eval()
     with torch.no_grad():
@@ -276,7 +308,7 @@ def test(k):
             emissions = torch.log_softmax(emissions, dim=-1)
             emission = emissions[0].cpu().detach()
             transcript = decoder(emission)
-            print('transcript:', transcript, NaiveCTCDecoder(labels)(emission))
+            print('Transcript:', transcript,'\n','Naive: ', NaiveCTCDecoder(labels)(emission))
 
 def save_checkpoint(EPOCH, LOSS):
     PATH = f"./checkpoint/model_{EPOCH}_{LOSS}.pt"
@@ -287,7 +319,8 @@ def save_checkpoint(EPOCH, LOSS):
             'loss': LOSS,
             }, PATH)
 
-for epoch in range(40):
+
+for epoch in range(2):
     model.train()
     for i_batch, sample_batched in enumerate(dataloader):
         for i in range(batch_size):  # Cannot run in batch, only 1 by 1
@@ -306,9 +339,13 @@ for epoch in range(40):
             loss.backward()
             optimizer.step()
 
-        if i_batch % (400 // batch_size) == 0:
-            print('epoch', epoch, loss.item())
-    scheduler.step()
+            if loss.item()!=loss.item():
+                print('NaN hit!')
+                exit()
+
+        if i_batch % (40 // batch_size) == 0:
+            print('epoch', epoch, 'loss', loss.item())
+    # scheduler.step()
     save_checkpoint(epoch, loss.item())
     test(3) # run some sample prediction and see the result
 
