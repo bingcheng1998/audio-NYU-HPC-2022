@@ -1,0 +1,11 @@
+conda_pkgs/*
+.vscode/*
+code/checkpoint/*.pt
+code/checkpoint/model_1_1.2229794263839722.pt
+code/data/zhspeechocean/1110/11101031.mp3
+code/data/*
+*.tar
+penv/*
+*.ext3
+*.out
+*.wav
