@@ -28,6 +28,7 @@ import os
 # import matplotlib.pyplot as plt
 import requests
 import torch
+import torch.nn as nn
 import torchaudio
 
 # matplotlib.rcParams["figure.figsize"] = [16.0, 4.8]
@@ -50,6 +51,7 @@ if not os.path.exists(SPEECH_FILE):
 bundle = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
 model = bundle.get_model().to(device)
 labels = bundle.get_labels()
+look_up = {s: i for i, s in enumerate(labels)} # 字母转数字
 with torch.inference_mode():
     waveform, _ = torchaudio.load(SPEECH_FILE)
     emissions, _ = model(waveform.to(device))
@@ -102,12 +104,12 @@ class NaiveCTCDecoder(torch.nn.Module):
         return "".join([self.labels[i] for i in indices])
 
 
-labels = bundle.get_labels()
-# labels = list(labels)
-look_up = {s: i for i, s in enumerate(labels)}  # 字母转数字
-# labels = {i: s for i, s in enumerate(labels)} # 数字转字母
+# labels = bundle.get_labels()
+# # labels = list(labels)
+# look_up = {s: i for i, s in enumerate(labels)}  # 字母转数字
+# # labels = {i: s for i, s in enumerate(labels)} # 数字转字母
 
-labels
+# labels
 
 # indices = torch.argmax(emission, dim=-1)  # [num_seq,]
 # torch.unique_consecutive(indices, dim=0)
@@ -118,22 +120,22 @@ print(transcript)
 
 # ---------------------- Chinese -----------------------
 
-initial_table = ['b', 'p', 'm', 'f',
-                'd', 't', 'n', 'l',
-                'g', 'k', 'h',
-                'j', 'q', 'x',
-                'zh', 'ch', 'sh', 'r', 'z', 'c', 's']
+# initial_table = ['b', 'p', 'm', 'f',
+#                 'd', 't', 'n', 'l',
+#                 'g', 'k', 'h',
+#                 'j', 'q', 'x',
+#                 'zh', 'ch', 'sh', 'r', 'z', 'c', 's']
 
-finals_table = [['i', 'u', 'v'], # 可以与下面的配成 iao, ue
-                ['a', 'o', 'e', 
-                'ai', 'ei', 'ao',
-                'ou', 'an', 'en',
-                'ang', 'eng', 'ong', 'er']]
+# finals_table = [['i', 'u', 'v'], # 可以与下面的配成 iao, ue
+#                 ['a', 'o', 'e', 
+#                 'ai', 'ei', 'ao',
+#                 'ou', 'an', 'en',
+#                 'ang', 'eng', 'ong', 'er']]
 
-labels = ['-','|']+initial_table + finals_table[0] + finals_table[1]
-look_up = {s: i for i, s in enumerate(labels)} # 字母转数字
+# labels = ['-','|']+initial_table + finals_table[0] + finals_table[1]
+# look_up = {s: i for i, s in enumerate(labels)} # 字母转数字
 
-decoder = GreedyCTCDecoder(labels=labels)
+# decoder = GreedyCTCDecoder(labels=labels)
 
 """# Transfer Learning in Chinese"""
 
@@ -146,32 +148,18 @@ from pypinyin import lazy_pinyin, Style
 def chinese2pinyin(text):
     initials = lazy_pinyin(text, strict=True, style=Style.INITIALS, errors=lambda x: u'-')
     finals = lazy_pinyin(text, strict=True, style=Style.FINALS, errors=lambda x: u'-')
-    pinyin = []
+    pinyin = ''
     for i in range(len(finals)):
-        pinyin.append('|')
+        pinyin+='|'
         if (initials[i] == '-'):
             continue
-        if (len(initials[i])!=0): pinyin.append(initials[i])
-        if finals[i] == 'in':
-            finals[i] = 'ien'
-        if finals[i] == 'vn':
-            finals[i] = 'ven'
-        if finals[i] == 'ing':
-            finals[i] = 'ieng'
-        if len(finals[i])==0:
-            finals[i] = 'n'
-        if finals[i][0] in finals_table[0]:
-            pinyin.append(finals[i][0])
-            if len(finals[i]) != 1:
-                pinyin.append(finals[i][1:])
-        else:
-            pinyin.append(finals[i])
-    pinyin = pinyin[1:]
-    if pinyin[-1] == '-':
-        pinyin = pinyin[:-2]
+        pinyin+=initials[i]
+        pinyin+=finals[i]
+        if finals[i] == '':
+            pinyin+='n'
     if pinyin[-1] == '|':
         pinyin = pinyin[:-1]
-    return pinyin
+    return pinyin[1:].upper()
 
 print(''.join(chinese2pinyin("绿色的温水，迂回的乌烟，流过。啊！哇！妞儿归去！")))
 
@@ -241,7 +229,11 @@ print(model.aux)
 model = bundle.get_model()
 for param in model.parameters():
     param.requires_grad = False
-model.aux = torch.nn.Linear(in_features=model.aux.in_features, out_features=len(labels), bias=True)
+model.aux = nn.Sequential(
+    nn.Linear(in_features=model.aux.in_features, out_features=len(labels), bias=True),
+    nn.ReLU(),
+    nn.Linear(in_features=len(labels), out_features=len(labels), bias=True)
+)
 # torch.nn.init.xavier_normal(model.aux.weight)
 for param in model.aux.parameters():
     param.requires_grad = True
@@ -271,8 +263,8 @@ print('audio_dataset size', len(audio_dataset))
 
 
 
-optimizer = torch.optim.SGD(model.aux.parameters(), lr=0.001, momentum=0.9)
-# scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
+optimizer = torch.optim.SGD(model.aux.parameters(), lr=0.01, momentum=0.9)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 # optimizer = torch.optim.Adam(model.aux.parameters(), lr=0.01)
 
 """使用DataLoader按照批次加载"""
@@ -320,9 +312,11 @@ def save_checkpoint(EPOCH, LOSS):
             }, PATH)
 
 
-for epoch in range(2):
+for epoch in range(10):
     model.train()
+    current_loss = 0
     for i_batch, sample_batched in enumerate(dataloader):
+        batch_loss = 0
         for i in range(batch_size):  # Cannot run in batch, only 1 by 1
             optimizer.zero_grad()
             # Step 1. Prepare Data
@@ -342,12 +336,13 @@ for epoch in range(2):
             if loss.item()!=loss.item():
                 print('NaN hit!')
                 exit()
-
+            current_loss += loss.item()
+            batch_loss += loss.item()
         if i_batch % (40 // batch_size) == 0:
-            print('epoch', epoch, 'loss', loss.item())
-    # scheduler.step()
-    save_checkpoint(epoch, loss.item())
-    test(3) # run some sample prediction and see the result
+            print('epoch', epoch, 'lr', scheduler.get_lr(), 'loss', batch_loss/batch_size)
+    scheduler.step()
+    save_checkpoint(epoch, current_loss/len(dataloader.dataset))
+    test(5) # run some sample prediction and see the result
 
 
 
