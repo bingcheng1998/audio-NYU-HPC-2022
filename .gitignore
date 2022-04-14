@@ -9,3 +9,4 @@ penv/*
 *.ext3
 *.out
 *.wav
+.cache/
