@@ -279,24 +279,25 @@ print('audio_dataset size', len(audio_dataset))
 
 # params = list(model.aux.parameters())+list(model.encoder.transformer.layers[11].parameters())
 params = model.aux.parameters()
-optimizer = torch.optim.SGD(params, lr=0.01, momentum=0.9)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+# optimizer = torch.optim.SGD(params, lr=0.01, momentum=0.9)
+# scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 # optimizer = torch.optim.Adam(model.aux.parameters(), lr=0.01)
 
 """使用DataLoader按照批次加载"""
 from os.path import exists
 
-LOAD_PATH = './checkpoint/model.pt'
+LOAD_PATH = './checkpoint/model2.pt'
 if exists(LOAD_PATH):
     print('file',LOAD_PATH,'exist, load checkpoint...')
     checkpoint = torch.load(LOAD_PATH, map_location=torch.device('cpu'))
     model.aux.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     epoch = checkpoint['epoch']
     loss = checkpoint['loss']
     print(epoch, loss)
 
-optimizer = torch.optim.SGD(model.aux.parameters(), lr=0.01, momentum=0.9)
+# optimizer = torch.optim.SGD(model.aux.parameters(), lr=0.001, momentum=0.9)
+optimizer = torch.optim.Adam(model.aux.parameters())
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
 
 batch_size = 8
