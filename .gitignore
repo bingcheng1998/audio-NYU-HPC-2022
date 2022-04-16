@@ -10,3 +10,4 @@ penv/*
 *.out
 *.wav
 .cache/
+code/checkpoint/e*.txt

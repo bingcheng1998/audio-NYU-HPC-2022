@@ -239,7 +239,7 @@ for param in model.parameters():
 #     nn.Linear(in_features=10, out_features=len(labels), bias=True)
 # )
 model.aux = nn.Linear(in_features=model.aux.in_features, out_features=len(labels), bias=True)
-torch.nn.init.xavier_normal(model.aux.weight)
+torch.nn.init.xavier_normal_(model.aux.weight)
 for param in model.aux.parameters():
     param.requires_grad = True
 # for param in model.encoder.transformer.layers[11].parameters():
@@ -277,7 +277,8 @@ transcript, chinese2pinyin(sample['text']), loss.item()
 print('audio_dataset size', len(audio_dataset))
 
 
-params = list(model.aux.parameters())+list(model.encoder.transformer.layers[11].parameters())
+# params = list(model.aux.parameters())+list(model.encoder.transformer.layers[11].parameters())
+params = model.aux.parameters()
 optimizer = torch.optim.SGD(params, lr=0.01, momentum=0.9)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 # optimizer = torch.optim.Adam(model.aux.parameters(), lr=0.01)
@@ -288,14 +289,14 @@ from os.path import exists
 LOAD_PATH = './checkpoint/model.pt'
 if exists(LOAD_PATH):
     print('file',LOAD_PATH,'exist, load checkpoint...')
-    checkpoint = torch.load(LOAD_PATH)
+    checkpoint = torch.load(LOAD_PATH, map_location=torch.device('cpu'))
     model.aux.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     epoch = checkpoint['epoch']
     loss = checkpoint['loss']
     print(epoch, loss)
 
-optimizer = torch.optim.SGD(model.aux.parameters(), lr=0.001, momentum=0.9)
+optimizer = torch.optim.SGD(model.aux.parameters(), lr=0.01, momentum=0.9)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
 
 batch_size = 8
@@ -330,6 +331,17 @@ def save_checkpoint(EPOCH, LOSS):
             'loss': LOSS,
             }, PATH)
 
+def save_log(file_name, log, mode='a', path = './checkpoint/'):
+    with open(path+file_name, mode) as f:
+        if mode == 'a':
+            f.write('\n')
+        if type(log) is str:
+            f.write(log)
+            print(log)
+        else:
+            log = [str(l) for l in log]
+            f.write(' '.join(log))
+            print(' '.join(log))
 
 for epoch in range(1):
     model.train()
@@ -358,7 +370,8 @@ for epoch in range(1):
             current_loss += loss.item()
             batch_loss += loss.item()
         if i_batch % (40 // batch_size) == 0:
-            print('epoch', epoch, 'lr', scheduler.get_lr(), 'loss', batch_loss/batch_size)
+            # print('epoch', epoch, 'lr', scheduler.get_lr(), 'loss', batch_loss/batch_size)
+            save_log(f'e{epoch}.txt', ['epoch', epoch, 'lr', scheduler.get_last_lr(), 'loss', batch_loss/batch_size])
     scheduler.step()
     save_checkpoint(epoch, current_loss/len(dataloader.dataset))
     test(5) # run some sample prediction and see the result
