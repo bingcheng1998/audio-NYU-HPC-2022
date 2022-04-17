@@ -292,7 +292,7 @@ from os.path import exists
 LOAD_PATH = './checkpoint/model2-no.pt'
 if exists(LOAD_PATH):
     print('file',LOAD_PATH,'exist, load checkpoint...')
-    checkpoint = torch.load(LOAD_PATH, map_location=torch.device('cpu'))
+    checkpoint = torch.load(LOAD_PATH, map_location=device)
     model.aux.load_state_dict(checkpoint['model_state_dict'])
     # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     epoch = checkpoint['epoch']
@@ -303,11 +303,26 @@ optimizer = torch.optim.SGD(model.aux.parameters(), lr=0.01, momentum=0.9, neste
 # optimizer = torch.optim.Adam(model.aux.parameters())
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
 
-batch_size = 8
+batch_size = 200
+k_size = model.feature_extractor.conv_layers[0].conv.kernel_size[0]
 def collate_wrapper(batch):
-    audio_list = [item['audio'] for item in batch]
+    rand_shift = torch.randint(k_size, (batch_size,))
+    audio_list = [batch[i]['audio'][:,rand_shift[i]:] for i in range(batch_size)]
+    audio_length = torch.tensor([audio.shape[-1] for audio in audio_list])
+    max_audio_length = torch.max(audio_length)
+    audio_list = torch.cat([
+        torch.cat(
+        (audio, torch.zeros(max_audio_length-audio.shape[-1], device=device).unsqueeze(0)), -1)
+         for audio in audio_list], 0)
     target_list = [label2id(chinese2pinyin(item['text'])) for item in batch]
-    return {'audio': audio_list, 'target': target_list}
+    target_length = torch.tensor([len(l) for l in target_list])
+    max_target_length = torch.max(target_length)
+    target_list = torch.cat([
+        torch.cat(
+        (torch.tensor(l), torch.zeros(max_target_length-len(l), device=device)), -1).unsqueeze(0) 
+        for l in target_list], 0)
+    return {'audio': audio_list, 'target': target_list, 'audio_len': audio_length, 'target_len': target_length}
+
 dataloader = DataLoader(audio_dataset, batch_size=batch_size,
                         shuffle=True, num_workers=0, collate_fn=collate_wrapper)
 
@@ -353,27 +368,30 @@ for epoch in range(1):
     for i_batch, sample_batched in enumerate(dataloader):
         batch_loss = 0
         optimizer.zero_grad()
-        for i in range(batch_size):  # Cannot run in batch, only 1 by 1
+        # for i in range(batch_size):  # Cannot run in batch, only 1 by 1
             
-            # Step 1. Prepare Data
-            waveform = sample_batched['audio'][i]
-            target = sample_batched['target'][i]
+        # Step 1. Prepare Data
+        waveform = sample_batched['audio']
+        wave_len = sample_batched['audio_len']
+        target = sample_batched['target']
+        target_len = sample_batched['target_len']
 
-            # Step 2. Run our forward pass
-            emissions, _ = model(waveform.to(device))
-            emissions = torch.nn.functional.log_softmax(emissions, dim=-1).permute(1, 0, 2)
-            target = torch.tensor([target]).to(device)
-            loss = ctc_loss(emissions, target, (emissions.shape[0],), (target.shape[-1],))
+        # Step 2. Run our forward pass
+        emissions, emission_len = model(waveform, wave_len)
+        # emissions, _ = model(waveform.to(device))
+        emissions = torch.nn.functional.log_softmax(emissions, dim=-1).permute(1,0,2)
+        # target = torch.tensor([target]).to(device)
+        loss = ctc_loss(emissions, target, emission_len, target_len)
 
-            # Step 2. Run our backward pass
-            loss.backward()
-            
+        # Step 2. Run our backward pass
+        loss.backward()
+        
+        if loss.item()!=loss.item():
+            print('NaN hit!')
+            exit()
+        current_loss += loss.item()
+        batch_loss += loss.item()
 
-            if loss.item()!=loss.item():
-                print('NaN hit!')
-                exit()
-            current_loss += loss.item()
-            batch_loss += loss.item()
         optimizer.step()
         if i_batch % (2000 // batch_size) == 0:
             # print('epoch', epoch, 'lr', scheduler.get_lr(), 'loss', batch_loss/batch_size)
