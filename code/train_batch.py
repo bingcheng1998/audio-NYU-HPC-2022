@@ -212,7 +212,7 @@ class AudioDataset(Dataset):
 
         audio_name = get_audio(idx)
         waveform, sample_rate = torchaudio.load(audio_name)
-        waveform = waveform.to(device)
+        waveform = waveform
         
         if sample_rate != sr:
             waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
@@ -303,7 +303,7 @@ optimizer = torch.optim.SGD(model.aux.parameters(), lr=0.01, momentum=0.9, neste
 # optimizer = torch.optim.Adam(model.aux.parameters())
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
 
-batch_size = 200
+batch_size = 128
 k_size = model.feature_extractor.conv_layers[0].conv.kernel_size[0]
 def collate_wrapper(batch):
     rand_shift = torch.randint(k_size, (batch_size,))
@@ -312,16 +312,16 @@ def collate_wrapper(batch):
     max_audio_length = torch.max(audio_length)
     audio_list = torch.cat([
         torch.cat(
-        (audio, torch.zeros(max_audio_length-audio.shape[-1], device=device).unsqueeze(0)), -1)
+        (audio, torch.zeros(max_audio_length-audio.shape[-1]).unsqueeze(0)), -1)
          for audio in audio_list], 0)
     target_list = [label2id(chinese2pinyin(item['text'])) for item in batch]
     target_length = torch.tensor([len(l) for l in target_list])
     max_target_length = torch.max(target_length)
     target_list = torch.cat([
         torch.cat(
-        (torch.tensor(l), torch.zeros(max_target_length-len(l), device=device)), -1).unsqueeze(0) 
+        (torch.tensor(l), torch.zeros(max_target_length-len(l))), -1).unsqueeze(0) 
         for l in target_list], 0)
-    return {'audio': audio_list, 'target': target_list, 'audio_len': audio_length, 'target_len': target_length}
+    return {'audio': audio_list.to(device), 'target': target_list.to(device), 'audio_len': audio_length.to(device), 'target_len': target_length.to(device)}
 
 dataloader = DataLoader(audio_dataset, batch_size=batch_size,
                         shuffle=True, num_workers=0, collate_fn=collate_wrapper)
