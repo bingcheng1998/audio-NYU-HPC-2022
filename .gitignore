@@ -11,3 +11,4 @@ penv/*
 *.wav
 .cache/
 code/checkpoint/e*.txt
+*.pyc
