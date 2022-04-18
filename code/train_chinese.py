@@ -12,7 +12,6 @@ get_audio = lambda x: data_path+file_names[x]+'.wav' if x < dataset_file_num els
 get_text = lambda x: open(data_path+file_names[x]+'.txt', "r").read() if x < dataset_file_num else None
 
 import random
-# from IPython.display import Audio
 
 rand_id = random.randint(0, 2400-1)
 
@@ -22,18 +21,11 @@ sentence = get_text(rand_id)
 
 print(rand_id, sentence)
 
-# import os
-# from dataclasses import dataclass
-# import IPython
-# import matplotlib
-# import matplotlib.pyplot as plt
 import requests
 import torch
 import torch.nn as nn
-# import torch.nn.functional as F
 import torchaudio
 
-# matplotlib.rcParams["figure.figsize"] = [16.0, 4.8]
 
 torch.random.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -53,8 +45,6 @@ if not os.path.exists(SPEECH_FILE):
 bundle = torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN
 model = bundle.get_model().to(device)
 labels = bundle.get_labels()
-model.aux
-# look_up = {s: i for i, s in enumerate(labels)} # 字母转数字
 
 with torch.inference_mode():
     waveform, _ = torchaudio.load(SPEECH_FILE)
@@ -109,14 +99,7 @@ class NaiveCTCDecoder(torch.nn.Module):
 
 
 labels = bundle.get_labels()
-# labels = list(labels)
 look_up = {s: i for i, s in enumerate(labels)}  # 字母转数字
-# # labels = {i: s for i, s in enumerate(labels)} # 数字转字母
-
-# labels
-
-# indices = torch.argmax(emission, dim=-1)  # [num_seq,]
-# torch.unique_consecutive(indices, dim=0)
 
 decoder = GreedyCTCDecoder(labels=labels)
 transcript = decoder(emission)
@@ -149,26 +132,26 @@ print(transcript)
 from pypinyin import lazy_pinyin, Style
 
 
-# def chinese2pinyin(text):
-#     initials = lazy_pinyin(text, strict=True, style=Style.INITIALS, errors=lambda x: u'')
-#     finals = lazy_pinyin(text, strict=True, style=Style.FINALS, errors=lambda x: u'')
-#     pinyin = ''
-#     for i in range(len(finals)):
-#         pinyin+='|'
-#         if (initials[i] == '-'):
-#             continue
-#         pinyin+=initials[i]
-#         pinyin+=finals[i]
-#         if finals[i] == '':
-#             pinyin+='n'
-#     if pinyin[-1] == '|':
-#         pinyin = pinyin[:-1]
-#     return pinyin.lower().replace('w','u')
-
 def chinese2pinyin(text):
-    pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
-    pinyin = [i for i in '|'.join(pinyin)]
-    return ['|']+pinyin
+    initials = lazy_pinyin(text, strict=True, style=Style.INITIALS, errors=lambda x: u'')
+    finals = lazy_pinyin(text, strict=True, style=Style.FINALS, errors=lambda x: u'')
+    pinyin = ''
+    for i in range(len(finals)):
+        pinyin+='|'
+        if (initials[i] == '-'):
+            continue
+        pinyin+=initials[i]
+        pinyin+=finals[i]
+        if finals[i] == '':
+            pinyin+='n'
+    if pinyin[-1] == '|':
+        pinyin = pinyin[:-1]
+    return pinyin.lower().replace('w','u')
+
+# def chinese2pinyin(text):
+#     pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
+#     pinyin = [i for i in '|'.join(pinyin)]
+#     return ['|']+pinyin
 
 print(''.join(chinese2pinyin("绿色的温水，迂回的乌烟，流过。啊！哇！妞儿归去！")))
 
@@ -212,7 +195,7 @@ class AudioDataset(Dataset):
 
         audio_name = get_audio(idx)
         waveform, sample_rate = torchaudio.load(audio_name)
-        waveform = waveform.to(device)
+        waveform = waveform
         
         if sample_rate != sr:
             waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
@@ -292,7 +275,7 @@ from os.path import exists
 LOAD_PATH = './checkpoint/model2-no.pt'
 if exists(LOAD_PATH):
     print('file',LOAD_PATH,'exist, load checkpoint...')
-    checkpoint = torch.load(LOAD_PATH, map_location=torch.device('cpu'))
+    checkpoint = torch.load(LOAD_PATH, map_location=device)
     model.aux.load_state_dict(checkpoint['model_state_dict'])
     # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     epoch = checkpoint['epoch']

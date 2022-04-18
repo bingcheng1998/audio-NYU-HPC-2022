@@ -12,7 +12,6 @@ get_audio = lambda x: data_path+file_names[x]+'.wav' if x < dataset_file_num els
 get_text = lambda x: open(data_path+file_names[x]+'.txt', "r").read() if x < dataset_file_num else None
 
 import random
-# from IPython.display import Audio
 
 rand_id = random.randint(0, 2400-1)
 
@@ -22,18 +21,11 @@ sentence = get_text(rand_id)
 
 print(rand_id, sentence)
 
-# import os
-# from dataclasses import dataclass
-# import IPython
-# import matplotlib
-# import matplotlib.pyplot as plt
 import requests
 import torch
 import torch.nn as nn
-# import torch.nn.functional as F
 import torchaudio
 
-# matplotlib.rcParams["figure.figsize"] = [16.0, 4.8]
 
 torch.random.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -53,8 +45,6 @@ if not os.path.exists(SPEECH_FILE):
 bundle = torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN
 model = bundle.get_model().to(device)
 labels = bundle.get_labels()
-model.aux
-# look_up = {s: i for i, s in enumerate(labels)} # 字母转数字
 
 with torch.inference_mode():
     waveform, _ = torchaudio.load(SPEECH_FILE)
@@ -109,14 +99,7 @@ class NaiveCTCDecoder(torch.nn.Module):
 
 
 labels = bundle.get_labels()
-# labels = list(labels)
 look_up = {s: i for i, s in enumerate(labels)}  # 字母转数字
-# # labels = {i: s for i, s in enumerate(labels)} # 数字转字母
-
-# labels
-
-# indices = torch.argmax(emission, dim=-1)  # [num_seq,]
-# torch.unique_consecutive(indices, dim=0)
 
 decoder = GreedyCTCDecoder(labels=labels)
 transcript = decoder(emission)
@@ -149,26 +132,26 @@ print(transcript)
 from pypinyin import lazy_pinyin, Style
 
 
-# def chinese2pinyin(text):
-#     initials = lazy_pinyin(text, strict=True, style=Style.INITIALS, errors=lambda x: u'')
-#     finals = lazy_pinyin(text, strict=True, style=Style.FINALS, errors=lambda x: u'')
-#     pinyin = ''
-#     for i in range(len(finals)):
-#         pinyin+='|'
-#         if (initials[i] == '-'):
-#             continue
-#         pinyin+=initials[i]
-#         pinyin+=finals[i]
-#         if finals[i] == '':
-#             pinyin+='n'
-#     if pinyin[-1] == '|':
-#         pinyin = pinyin[:-1]
-#     return pinyin.lower().replace('w','u')
-
 def chinese2pinyin(text):
-    pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
-    pinyin = [i for i in '|'.join(pinyin)]
-    return ['|']+pinyin
+    initials = lazy_pinyin(text, strict=True, style=Style.INITIALS, errors=lambda x: u'')
+    finals = lazy_pinyin(text, strict=True, style=Style.FINALS, errors=lambda x: u'')
+    pinyin = ''
+    for i in range(len(finals)):
+        pinyin+='|'
+        if (initials[i] == '-'):
+            continue
+        pinyin+=initials[i]
+        pinyin+=finals[i]
+        if finals[i] == '':
+            pinyin+='n'
+    if pinyin[-1] == '|':
+        pinyin = pinyin[:-1]
+    return pinyin[1:].lower().replace('w','u')
+
+# def chinese2pinyin(text):
+#     pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
+#     pinyin = [i for i in '|'.join(pinyin)]
+#     return ['|']+pinyin
 
 print(''.join(chinese2pinyin("绿色的温水，迂回的乌烟，流过。啊！哇！妞儿归去！")))
 
@@ -236,11 +219,11 @@ print(model.aux)
 model = bundle.get_model()
 for param in model.parameters():
     param.requires_grad = False
-model.aux = nn.Sequential(
-    nn.Dropout(0.3),
-    nn.Linear(in_features=model.aux.in_features, out_features=len(labels), bias=True)
-)
-# model.aux = nn.Linear(in_features=model.aux.in_features, out_features=len(labels), bias=True)
+# model.aux = nn.Sequential(
+#     nn.Dropout(0.3),
+#     nn.Linear(in_features=model.aux.in_features, out_features=len(labels), bias=True)
+# )
+model.aux = nn.Linear(in_features=model.aux.in_features, out_features=len(labels), bias=True)
 # torch.nn.init.xavier_normal_(model.aux.weight)
 for param in model.aux.parameters():
     param.requires_grad = True
@@ -254,7 +237,6 @@ def init_weights_bias(module):
 # net = model.encoder.transformer.layers[11]
 # net.apply(init_weights_bias)
 model.aux.apply(init_weights_bias)
-
 model = model.to(device)
 
 with torch.no_grad():
@@ -289,7 +271,7 @@ params = model.aux.parameters()
 """使用DataLoader按照批次加载"""
 from os.path import exists
 
-LOAD_PATH = './checkpoint/model2-no.pt'
+LOAD_PATH = './checkpoint/model_0_0.832.pt'
 if exists(LOAD_PATH):
     print('file',LOAD_PATH,'exist, load checkpoint...')
     checkpoint = torch.load(LOAD_PATH, map_location=device)
@@ -299,15 +281,16 @@ if exists(LOAD_PATH):
     loss = checkpoint['loss']
     print(epoch, loss)
 
-optimizer = torch.optim.SGD(model.aux.parameters(), lr=0.01, momentum=0.9, nesterov=True)
+optimizer = torch.optim.SGD(params, lr=0.0001, momentum=0.8)
 # optimizer = torch.optim.Adam(model.aux.parameters())
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 
-batch_size = 128
+batch_size = 64
 k_size = model.feature_extractor.conv_layers[0].conv.kernel_size[0]
 def collate_wrapper(batch):
-    rand_shift = torch.randint(k_size, (batch_size,))
-    audio_list = [batch[i]['audio'][:,rand_shift[i]:] for i in range(batch_size)]
+    bs = len(batch)
+    rand_shift = torch.randint(k_size, (bs,))
+    audio_list = [batch[i]['audio'][:,rand_shift[i]:] for i in range(bs)]
     audio_length = torch.tensor([audio.shape[-1] for audio in audio_list])
     max_audio_length = torch.max(audio_length)
     audio_list = torch.cat([
@@ -362,14 +345,11 @@ def save_log(file_name, log, mode='a', path = './checkpoint/'):
             f.write(' '.join(log))
             print(' '.join(log))
 
-for epoch in range(1):
+for epoch in range(3):
     model.train()
     current_loss = 0
     for i_batch, sample_batched in enumerate(dataloader):
-        batch_loss = 0
-        optimizer.zero_grad()
-        # for i in range(batch_size):  # Cannot run in batch, only 1 by 1
-            
+
         # Step 1. Prepare Data
         waveform = sample_batched['audio']
         wave_len = sample_batched['audio_len']
@@ -377,29 +357,29 @@ for epoch in range(1):
         target_len = sample_batched['target_len']
 
         # Step 2. Run our forward pass
-        emissions, emission_len = model(waveform, wave_len)
-        # emissions, _ = model(waveform.to(device))
-        emissions = torch.nn.functional.log_softmax(emissions, dim=-1).permute(1,0,2)
-        # target = torch.tensor([target]).to(device)
+        emissions, emission_len = model(waveform.to(device), wave_len.to(device))
+        emissions = torch.log_softmax(emissions, dim=-1).permute(1,0,2)
         loss = ctc_loss(emissions, target, emission_len, target_len)
 
         # Step 2. Run our backward pass
+        optimizer.zero_grad()
         loss.backward()
-        
-        if loss.item()!=loss.item():
+        optimizer.step()
+
+        if loss.item()!=loss.item(): # if loss == NaN, break
             print('NaN hit!')
             exit()
-        current_loss += loss.item()
-        batch_loss += loss.item()
+        current_loss = loss.item()
+        batch_loss = loss.item()
 
-        optimizer.step()
         if i_batch % (2000 // batch_size) == 0:
             # print('epoch', epoch, 'lr', scheduler.get_lr(), 'loss', batch_loss/batch_size)
-            save_log(f'e{epoch}.txt', ['epoch', epoch, 'lr', scheduler.get_last_lr(), 'loss', batch_loss/batch_size])
+            save_log(f'e{epoch}.txt', ['🟣 epoch', epoch, 'data', i_batch*batch_size, 'lr', scheduler.get_last_lr(), 'loss', batch_loss])
             test(epoch, 5)
         
-    # scheduler.step()
-    save_checkpoint(epoch, current_loss/len(dataloader.dataset))
+    scheduler.step()
+    save_checkpoint(epoch, current_loss)
+    save_log(f'e{epoch}.txt', ['============= 最终测试 =============='])
     test(epoch, 10) # run some sample prediction and see the result
 
 
