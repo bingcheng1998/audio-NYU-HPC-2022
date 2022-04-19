@@ -19,12 +19,24 @@ print('torchaudio:', torchaudio.__version__)
 print('device:\t', device)
 
 LOAD_PATH = './checkpoint/model_no.pt' # checkpoint used if exist
-batch_size = 32
+batch_size = 16
 bundle = torchaudio.pipelines.WAV2VEC2_XLSR53
 wave2vec_model = bundle.get_model()
 labels = get_labels()
 k_size = wave2vec_model.feature_extractor.conv_layers[0].conv.kernel_size[0] # kernel size for audio encoder
 mean = lambda x: sum(x)/len(x)
+
+def save_log(file_name, log, mode='a', path = './log/n1-'):
+    with open(path+file_name, mode) as f:
+        if mode == 'a':
+            f.write('\n')
+        if type(log) is str:
+            f.write(log)
+            print(log)
+        else:
+            log = [str(l) for l in log]
+            f.write(' '.join(log))
+            print(' '.join(log))
 
 def chinese2pinyin(text):
     initials = lazy_pinyin(text, strict=True, style=Style.INITIALS, errors=lambda x: u'')
@@ -45,13 +57,13 @@ def chinese2pinyin(text):
 # def chinese2pinyin(text):
 #     pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
 #     pinyin = [i for i in '|'.join(pinyin)]
-#     return ['|']+pinyin
+#     return pinyin
 
 dataset = AudioDataset('./data/ST-CMDS-20170001_1-OS/')
 train_set, test_set = dataset.split([98, 2])
 loaderGenerator = LoaderGenerator(labels, chinese2pinyin, k_size)
 train_loader = loaderGenerator.dataloader(train_set, batch_size)
-test_loader = loaderGenerator.dataloader(test_set, batch_size*2) # without backprop, can use larger batch
+test_loader = loaderGenerator.dataloader(test_set, batch_size) # without backprop, can use larger batch
 
 decoder = GreedyCTCDecoder(labels=labels)
 
@@ -86,9 +98,9 @@ if exists(LOAD_PATH):
     loss = checkpoint['loss']
     print(epoch, loss)
 
-# params = list(model.aux.parameters())+list(model.encoder.transformer.layers[11].parameters())
-params = model.aux.parameters()
-optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
+params = list(model.aux.parameters())+list(model.encoder.parameters())
+# params = model.aux.parameters()
+optimizer = torch.optim.SGD(params, lr=0.01, momentum=0.9)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 ctc_loss = torch.nn.CTCLoss(zero_infinity=True)
 
@@ -114,17 +126,7 @@ def save_checkpoint(EPOCH, LOSS):
             'loss': LOSS,
             }, PATH)
 
-def save_log(file_name, log, mode='a', path = './checkpoint/'):
-    with open(path+file_name, mode) as f:
-        if mode == 'a':
-            f.write('\n')
-        if type(log) is str:
-            f.write(log)
-            print(log)
-        else:
-            log = [str(l) for l in log]
-            f.write(' '.join(log))
-            print(' '.join(log))
+
 
 def test():
     model.eval()
@@ -187,6 +189,7 @@ def train(epoch=1):
 
             if i_batch % (2000 // batch_size) == 0:
                 test_loss = test()
+                # test_loss = 0
                 train_loss = mean(batch_train_loss)
                 test_loss_q.append(test_loss)
                 train_loss_q.append(train_loss)
