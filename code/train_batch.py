@@ -19,7 +19,7 @@ print('torchaudio:', torchaudio.__version__)
 print('device:\t', device)
 
 LOAD_PATH = './checkpoint/model_no.pt' # checkpoint used if exist
-batch_size = 64
+batch_size = 32
 bundle = torchaudio.pipelines.WAV2VEC2_XLSR53
 wave2vec_model = bundle.get_model()
 labels = get_labels()
@@ -48,10 +48,10 @@ def chinese2pinyin(text):
 #     return ['|']+pinyin
 
 dataset = AudioDataset('./data/ST-CMDS-20170001_1-OS/')
-train_set, test_set = dataset.split([8, 2])
+train_set, test_set = dataset.split([98, 2])
 loaderGenerator = LoaderGenerator(labels, chinese2pinyin, k_size)
 train_loader = loaderGenerator.dataloader(train_set, batch_size)
-test_loader = loaderGenerator.dataloader(test_set, batch_size)
+test_loader = loaderGenerator.dataloader(test_set, batch_size*2) # without backprop, can use larger batch
 
 decoder = GreedyCTCDecoder(labels=labels)
 
@@ -88,7 +88,7 @@ if exists(LOAD_PATH):
 
 # params = list(model.aux.parameters())+list(model.encoder.transformer.layers[11].parameters())
 params = model.aux.parameters()
-optimizer = torch.optim.SGD(params, lr=0.0001, momentum=0.8)
+optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 ctc_loss = torch.nn.CTCLoss(zero_infinity=True)
 
@@ -196,7 +196,7 @@ def train(epoch=1):
             
         scheduler.step()
         save_checkpoint(epoch, mean(test_loss))
-        save_log(f'e{epoch}.txt', ['============= 最终测试 =============='])
+        save_log(f'e{epoch}.txt', ['============= Final Test ============='])
         test_decoder(epoch, 10) # run some sample prediction and see the result
 
 train()
