@@ -10,19 +10,20 @@ from os.path import exists
 
 from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
 from utils.dataset import AudioDataset, LoaderGenerator
+from utils.helper import get_labels
 
 torch.random.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print('torch:\t', torch.__version__)
-print('torchaudio:\t', torchaudio.__version__)
+print('torchaudio:', torchaudio.__version__)
 print('device:\t', device)
 
-LOAD_PATH = './checkpoint/model_0_0.832.pt' # checkpoint used if exist
+LOAD_PATH = './checkpoint/model_no.pt' # checkpoint used if exist
 batch_size = 64
-bundle = torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN
-model = bundle.get_model()
-labels = bundle.get_labels()
-k_size = model.feature_extractor.conv_layers[0].conv.kernel_size[0] # kernel size for audio encoder
+bundle = torchaudio.pipelines.WAV2VEC2_XLSR53
+wave2vec_model = bundle.get_model()
+labels = get_labels()
+k_size = wave2vec_model.feature_extractor.conv_layers[0].conv.kernel_size[0] # kernel size for audio encoder
 mean = lambda x: sum(x)/len(x)
 
 def chinese2pinyin(text):
@@ -54,14 +55,26 @@ test_loader = loaderGenerator.dataloader(test_set, batch_size)
 
 decoder = GreedyCTCDecoder(labels=labels)
 
-for param in model.parameters():
+class ChineseStt(torch.nn.Module):
+    def __init__(self, wave2vec_model, out_features):
+        super(ChineseStt, self).__init__()
+        self.feature_extractor = wave2vec_model.feature_extractor
+        self.encoder = wave2vec_model.encoder
+        in_features = wave2vec_model.encoder.transformer.layers[-1].final_layer_norm.normalized_shape[0]
+        self.aux = nn.Linear(in_features, out_features, bias=True)
+
+    def forward(self, x, lengths=None):
+        x, lengths = self.feature_extractor(x, lengths)
+        x = self.encoder(x, lengths)
+        x = self.aux(x)
+        return x, lengths
+
+model = ChineseStt(wave2vec_model, len(labels))
+for param in model.feature_extractor.parameters():
     param.requires_grad = False
-model.aux = nn.Linear(in_features=model.aux.in_features, out_features=len(labels), bias=True)
 torch.nn.init.xavier_normal_(model.aux.weight)
-for param in model.aux.parameters():
+for param in model.encoder.parameters():
     param.requires_grad = True
-# for param in model.encoder.transformer.layers[11].parameters():
-#     param.requires_grad = True
 model = model.to(device)
 
 if exists(LOAD_PATH):
@@ -76,7 +89,6 @@ if exists(LOAD_PATH):
 # params = list(model.aux.parameters())+list(model.encoder.transformer.layers[11].parameters())
 params = model.aux.parameters()
 optimizer = torch.optim.SGD(params, lr=0.0001, momentum=0.8)
-# optimizer = torch.optim.Adam(model.aux.parameters())
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 ctc_loss = torch.nn.CTCLoss(zero_infinity=True)
 
@@ -185,7 +197,7 @@ def train(epoch=1):
         scheduler.step()
         save_checkpoint(epoch, mean(test_loss))
         save_log(f'e{epoch}.txt', ['============= 最终测试 =============='])
-        test(epoch, 10) # run some sample prediction and see the result
+        test_decoder(epoch, 10) # run some sample prediction and see the result
 
 train()
 

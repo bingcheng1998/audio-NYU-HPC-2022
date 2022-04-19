@@ -12,3 +12,4 @@ penv/*
 .cache/
 code/checkpoint/e*.txt
 *.pyc
+code/checkpoint/bac/
