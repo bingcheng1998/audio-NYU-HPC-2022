@@ -12,7 +12,7 @@ from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
 from utils.dataset import AudioDataset, LoaderGenerator
 from utils.helper import get_labels
 
-def save_log(file_name, log, mode='a', path = './log/n1-'):
+def save_log(file_name, log, mode='a', path = './log/n2-'):
     with open(path+file_name, mode) as f:
         if mode == 'a':
             f.write('\n')
@@ -30,7 +30,7 @@ save_log(f'e.txt', ['torch:', torch.__version__])
 save_log(f'e.txt', ['torchaudio:', torchaudio.__version__])
 save_log(f'e.txt', ['device:', device])
 
-LOAD_PATH = './checkpoint/model_no.pt' # checkpoint used if exist
+LOAD_PATH = './checkpoint/model_temp.pt' # checkpoint used if exist
 batch_size = 64
 bundle = torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN
 wave2vec_model = bundle.get_model()
@@ -89,19 +89,24 @@ for param in model.feature_extractor.parameters():
     param.requires_grad = False
 torch.nn.init.xavier_normal_(model.aux.weight)
 for param in model.encoder.parameters():
-    param.requires_grad = False
-# params = list(model.aux.parameters())+list(model.encoder.parameters())
-params = model.aux.parameters()
+    param.requires_grad = True
+params = list(model.aux.parameters())+list(model.encoder.parameters())
+# params = model.aux.parameters()
 model = model.to(device)
 
-if exists(LOAD_PATH):
-    print('file',LOAD_PATH,'exist, load checkpoint...')
-    checkpoint = torch.load(LOAD_PATH, map_location=device)
-    model.aux.load_state_dict(checkpoint['model_state_dict']) 
-    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
-    print(epoch, loss)
+def load_checkpoint(path):
+    if exists(path):
+        save_log(f'e.txt', ['file',path,'exist, load checkpoint...'])
+        checkpoint = torch.load(path, map_location=device)
+        if 'model_state_dict' in checkpoint:
+            model.aux.load_state_dict(checkpoint['model_state_dict'])
+        if 'model_encoder_dict' in checkpoint:
+            model.encoder.load_state_dict(checkpoint['model_encoder_dict'])
+        # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        epoch = checkpoint['epoch']
+        loss = checkpoint['loss']
+        save_log(f'e.txt', [epoch, loss])
+load_checkpoint(LOAD_PATH)
 
 optimizer = torch.optim.SGD(params, lr=0.01, momentum=0.9)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
@@ -125,6 +130,7 @@ def save_temp(LOSS):
     torch.save({
             'epoch': -1,
             'model_state_dict': model.aux.state_dict(),
+            'model_encoder_dict': model.encoder.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': LOSS,
             }, PATH)
@@ -134,6 +140,7 @@ def save_checkpoint(EPOCH, LOSS):
     torch.save({
             'epoch': EPOCH,
             'model_state_dict': model.aux.state_dict(),
+            'model_encoder_dict': model.encoder.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': LOSS,
             }, PATH)
@@ -144,29 +151,23 @@ def test():
     model.eval()
     losses = []
     for sample_batched in test_loader:
-
         # Step 1. Prepare Data
         waveform = sample_batched['audio']
         wave_len = sample_batched['audio_len']
         target = sample_batched['target']
         target_len = sample_batched['target_len']
-
         # Step 2. Run our forward pass
         emissions, emission_len = model(waveform, wave_len)
         emissions = torch.log_softmax(emissions, dim=-1).permute(1,0,2)
         loss = ctc_loss(emissions, target, emission_len, target_len)
-
-        # Step 2. Run our backward pass
+        # Step 3. Run our backward pass
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
         if loss.item()!=loss.item(): # if loss == NaN, break
             print('NaN hit!')
             exit()
-
         losses.append(loss.item())
-
     return mean(losses)
 
 save_log(f'e.txt', ['initial test loss:', test()])
@@ -190,7 +191,7 @@ def train(epoch=1):
             emissions = torch.log_softmax(emissions, dim=-1).permute(1,0,2)
             loss = ctc_loss(emissions, target, emission_len, target_len)
 
-            # Step 2. Run our backward pass
+            # Step 3. Run our backward pass
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -213,7 +214,7 @@ def train(epoch=1):
                 test_decoder(epoch, 5)
             
         scheduler.step()
-        save_checkpoint(epoch, mean(test_loss))
+        save_checkpoint(epoch, mean(test_loss_q))
         save_log(f'e{epoch}.txt', ['============= Final Test ============='])
         test_decoder(epoch, 10) # run some sample prediction and see the result
 
