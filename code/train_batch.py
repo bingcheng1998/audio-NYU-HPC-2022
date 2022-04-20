@@ -9,7 +9,7 @@ from pypinyin import lazy_pinyin, Style
 from os.path import exists
 
 from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
-from utils.dataset import AudioDataset, LoaderGenerator, CvCorpus8Dataset, AiShellDataset
+from utils.dataset import *
 from utils.helper import get_labels
 
 def save_log(file_name, log, mode='a', path = './log/n4-'):
@@ -32,22 +32,28 @@ save_log(f'e.txt', ['device:', device])
 save_log(f'e.txt', ['HPC Node:', os.uname()[1]])
 
 NUM_EPOCHS = 5
-LOAD_PATH = './checkpoint/model_ST_CMDS.pt' # checkpoint used if exist
+LOAD_PATH = './checkpoint/model_AiShell.pt' # checkpoint used if exist
 bundle = torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN
 wave2vec_model = bundle.get_model()
 labels = get_labels()
 k_size = wave2vec_model.feature_extractor.conv_layers[0].conv.kernel_size[0] # kernel size for audio encoder
 mean = lambda x: sum(x)/len(x)
 
+# def chinese2pinyin(text):
+#     pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
+#     pinyin = [i for i in '|'.join(pinyin)]
+#     return pinyin
+
 def chinese2pinyin(text):
-    pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
+    pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'-')
     pinyin = [i for i in '|'.join(pinyin)]
     return pinyin
 
 save_log(f'e.txt', ['Loading Dataset ...'])
 # dataset = AudioDataset('./data/ST-CMDS-20170001_1-OS/')
 # dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/')
-dataset = AiShellDataset('./data/data_aishell/')
+# dataset = AiShellDataset('./data/data_aishell/')
+dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/')
 train_set, test_set = dataset.split()
 batch_size = train_set.dataset.batch_size # tain batch size
 test_batch = batch_size//4 # test batch size
