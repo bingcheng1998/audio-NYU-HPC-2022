@@ -1,3 +1,5 @@
+# 中文预测的label
+
 def get_labels():
     return ('-',
             '|',
