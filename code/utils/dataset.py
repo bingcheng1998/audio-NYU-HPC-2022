@@ -1,9 +1,10 @@
 import os
+from numpy import dtype
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split
 import torchaudio
 
-class AudioDataset(Dataset):
+class STCMDSDataset(Dataset):
 
     def __init__(self, data_path, sample_rate=16000, transform=None):
         files = os.listdir(data_path)
@@ -16,6 +17,9 @@ class AudioDataset(Dataset):
         self.data_path = data_path
         self.transform = transform
         self.sample_rate = sample_rate
+        self.threshold = 90000 # to avoid GPU memory used out
+        self.batch_size = 128 # to avoid GPU memory used out
+        self.split_ratio = [1000, 5]
 
     def __len__(self):
         return len(self.file_names)
@@ -41,14 +45,71 @@ class AudioDataset(Dataset):
     def get_text(self, x): 
         return open(self.data_path+self.file_names[x]+'.txt', "r").read() if x < self.dataset_file_num else None
     
-    def split(self, split_ratio=[8, 2], seed=42):
+    def split(self, split_ratio=None, seed=42):
         audio_dataset = self
         size = len(audio_dataset)
-        lengths = [(i*size)//sum(split_ratio) for i in split_ratio]
+        my_split_ratio = self.split_ratio if split_ratio is None else split_ratio
+        lengths = [(i*size)//sum(my_split_ratio) for i in my_split_ratio]
         lengths[-1] = size - sum(lengths[:-1])
         split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
         return split_dataset
         
+AudioDataset = STCMDSDataset
+
+import pandas as pd
+class CvCorpus8Dataset(Dataset):
+
+    def __init__(self, data_path, sample_rate=16000, transform=None):
+        df1 = pd.read_csv(data_path+'validated.tsv',sep='\t')[['path', 'sentence']]
+        # df2 = pd.read_csv(data_path+'invalidated.tsv',sep='\t')[['path', 'sentence']]
+        # df3 = pd.read_csv(data_path+'other.tsv',sep='\t')[['path', 'sentence']]
+        # df = pd.concat([df1, df2, df3])
+        df = df1
+        audio_path = df['path'].to_list()
+        sentence_text = df['sentence'].to_list()
+        assert len(audio_path) == len(sentence_text)
+        self.audio_path = audio_path
+        self.sentence_text = sentence_text
+        self.size = len(audio_path)
+        self.data_path = data_path
+        self.transform = transform
+        self.sample_rate = sample_rate
+        self.threshold = 170000 # to avoid GPU memory used out
+        self.batch_size = 64 # to avoid GPU memory used out
+        self.split_ratio = [100, 1]
+
+    def __len__(self):
+        return len(self.audio_path)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        audio_name = self.get_audio(idx)
+        waveform, sample_rate = torchaudio.load(audio_name)
+        waveform = waveform
+        if sample_rate != self.sample_rate:
+            waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
+        audio_content = self.get_text(idx)
+        sample = {'audio': waveform, 'text': audio_content}
+        if self.transform:
+            sample = self.transform(sample)
+        return sample
+
+    def get_audio(self, x): 
+        return self.data_path+'clips/'+self.audio_path[x] if x < len(self) else None
+        
+    def get_text(self, x): 
+        return self.sentence_text[x] if x < len(self) else None
+    
+    def split(self, split_ratio=None, seed=42):
+        audio_dataset = self
+        size = len(audio_dataset)
+        my_split_ratio = self.split_ratio if split_ratio is None else split_ratio
+        lengths = [(i*size)//sum(my_split_ratio) for i in my_split_ratio]
+        lengths[-1] = size - sum(lengths[:-1])
+        split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
+        return split_dataset
 
 class LoaderGenerator:
     def __init__(self, labels, chinese2pinyin, k_size=0) -> None:
@@ -65,7 +126,15 @@ class LoaderGenerator:
     def id2label(self, idcs):
         return ''.join([self.labels[i] for i in idcs])
 
+    def batch_filter(self, batch:list):
+        # remove all audio with tag if audio length > threshold
+        for i in range(len(batch)-1, -1, -1):
+            if batch[i]['audio'].shape[-1] > self.threshold:
+                del batch[i]
+        return batch
+
     def collate_wrapper(self, batch):
+        batch = self.batch_filter(batch)
         bs = len(batch)
         rand_shift = torch.randint(self.k_size, (bs,))
         audio_list = [batch[i]['audio'][:,rand_shift[i]:] for i in range(bs)]
@@ -80,12 +149,39 @@ class LoaderGenerator:
         max_target_length = torch.max(target_length)
         target_list = torch.cat([
             torch.cat(
-            (torch.tensor(l), torch.zeros(max_target_length-len(l))), -1).unsqueeze(0) 
+            (torch.tensor(l), torch.zeros([max_target_length-len(l)], dtype=torch.int)), -1).unsqueeze(0) 
             for l in target_list], 0)
         device = self.device
         return {'audio': audio_list.to(device), 'target': target_list.to(device), 'audio_len': audio_length.to(device), 'target_len': target_length.to(device)}
 
-    def dataloader(self, audioDataset, batch_size):
+    def dataloader(self, audioDataset, batch_size, shuffle=True):
         # k_size is the kernel size for the encoder, for data augmentation
+        self.threshold = audioDataset.dataset.threshold
         return DataLoader(audioDataset, batch_size,
-                            shuffle=True, num_workers=0, collate_fn=self.collate_wrapper)
+                            shuffle, num_workers=0, collate_fn=self.collate_wrapper)
+
+if __name__ == '__main__':
+    # dataset = AudioDataset('./data/ST-CMDS-20170001_1-OS/')
+    dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/')
+    batch_size = 8
+    train_set, test_set = dataset.split([1000, 5])
+    k_size = 5 # kernel size for audio encoder
+    from pypinyin import lazy_pinyin
+    def chinese2pinyin(text):
+        pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
+        pinyin = [i for i in '|'.join(pinyin)]
+        return pinyin
+    from helper import get_labels
+    labels = get_labels()
+    loaderGenerator = LoaderGenerator(labels, chinese2pinyin, k_size)
+    train_loader = loaderGenerator.dataloader(train_set, batch_size)
+    test_loader = loaderGenerator.dataloader(test_set, batch_size) # without backprop, can use larger batch
+    print('train_set:', len(train_set), 'test_set:',len(test_set))
+    steps = 10
+    for i_batch, sample_batched in enumerate(test_loader):
+        print(sample_batched['audio'].shape, sample_batched['target'].shape)
+        # for i in sample_batched['audio']:
+        #     print(i.shape)
+        if steps < 0:
+            break
+        steps -= 1

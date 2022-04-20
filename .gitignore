@@ -17,3 +17,4 @@ code/log/
 code/__pycache__/
 code/_assets/
 pytorch-singularity/
+*.mp3
