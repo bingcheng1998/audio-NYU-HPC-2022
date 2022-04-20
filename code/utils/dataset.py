@@ -1,4 +1,9 @@
-
+# 中文语音数据集
+# 1. SpeechOceanDataset 最小的数据集，建议最先在这个上面测试
+# 2. PrimeWordsDataset 优质的大型数据集 https://www.openslr.org/resources/47/
+# 3. AiShellDataset 优质的大型数据集 http://www.openslr.org/33/
+# 4. STCMDSDataset 优质的大型数据集 https://us.openslr.org/resources/38/
+# 5. CvCorpus8Dataset 很差劲的firefox数据集，不要用这个，质量过差
 
 import json
 import os
