@@ -16,7 +16,7 @@ class AiShellDataset(Dataset):
         self.sample_rate = sample_rate
         self.threshold = 120000 # to avoid GPU memory used out
         self.batch_size = 80 # to avoid GPU memory used out
-        self.split_ratio = [1000, 1]
+        self.split_ratio = [1000, 5]
 
     def __len__(self):
         return self.dataset_file_num
@@ -236,7 +236,7 @@ if __name__ == '__main__':
     # dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/')
     dataset = AiShellDataset('./data/data_aishell/')
     batch_size = 8
-    train_set, test_set = dataset.split([1000, 5])
+    train_set, test_set = dataset.split()
     k_size = 5 # kernel size for audio encoder
     from pypinyin import lazy_pinyin
     def chinese2pinyin(text):

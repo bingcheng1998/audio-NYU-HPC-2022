@@ -142,24 +142,18 @@ def save_checkpoint(EPOCH, LOSS):
 def test():
     model.eval()
     losses = []
-    for sample_batched in test_loader:
-        # Step 1. Prepare Data
-        waveform = sample_batched['audio']
-        wave_len = sample_batched['audio_len']
-        target = sample_batched['target']
-        target_len = sample_batched['target_len']
-        # Step 2. Run our forward pass
-        emissions, emission_len = model(waveform, wave_len)
-        emissions = torch.log_softmax(emissions, dim=-1).permute(1,0,2)
-        loss = ctc_loss(emissions, target, emission_len, target_len)
-        # Step 3. Run our backward pass
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        if loss.item()!=loss.item(): # if loss == NaN, break
-            print('NaN hit!')
-            exit()
-        losses.append(loss.item())
+    with torch.no_grad():
+        for sample_batched in test_loader:
+            # Step 1. Prepare Data
+            waveform = sample_batched['audio']
+            wave_len = sample_batched['audio_len']
+            target = sample_batched['target']
+            target_len = sample_batched['target_len']
+            # Step 2. Run our forward pass
+            emissions, emission_len = model(waveform, wave_len)
+            emissions = torch.log_softmax(emissions, dim=-1).permute(1,0,2)
+            loss = ctc_loss(emissions, target, emission_len, target_len)
+            losses.append(loss.item())
     return mean(losses)
 
 save_log(f'e.txt', ['initial test loss:', test()])
