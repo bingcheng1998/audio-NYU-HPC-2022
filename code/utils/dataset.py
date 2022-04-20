@@ -4,6 +4,77 @@ import torch
 from torch.utils.data import Dataset, DataLoader, random_split
 import torchaudio
 
+class AiShellDataset(Dataset):
+
+    def __init__(self, data_path, sample_rate=16000, transform=None):
+        transcript_file = data_path+'transcript/aishell_transcript_v0.8.txt'
+        self.transcript = self.gen_transcript(transcript_file)
+        self.wav_files = self.get_all_wav_files(data_path, self.transcript)
+        self.dataset_file_num = len(self.wav_files)
+        self.data_path = data_path
+        self.transform = transform
+        self.sample_rate = sample_rate
+        self.threshold = 120000 # to avoid GPU memory used out
+        self.batch_size = 80 # to avoid GPU memory used out
+        self.split_ratio = [1000, 1]
+
+    def __len__(self):
+        return self.dataset_file_num
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        if idx >= self.dataset_file_num:
+            return {'audio': None, 'text': None}
+        audio_name = self.wav_files[idx]
+        waveform, sample_rate = torchaudio.load(audio_name)
+        waveform = waveform
+        if sample_rate != self.sample_rate:
+            waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
+        dict_id = audio_name.rsplit('/',1)[-1].split('.')[0]
+        audio_content = self.transcript[dict_id]
+        sample = {'audio': waveform, 'text': audio_content}
+        if self.transform:
+            sample = self.transform(sample)
+        return sample
+
+    def parse_line(self, line):
+        id, text = line.split(' ', 1)
+        text = ''.join(text.split(' '))
+        return id, text
+
+    def gen_transcript(self, transcript_file):
+        transcript = {}
+        with open(transcript_file, 'r') as f:
+            content = f.read()
+            lines = content.split('\n')[:-1]
+            for line in lines:
+                id, text = self.parse_line(line)
+                transcript[id] = text
+        return transcript
+
+    def get_all_wav_files(self, path, transcript):
+        folders = []
+        train = os.listdir(path+'wav/train/')
+        folders += [path+'wav/train/'+i for i in train]
+        dev = os.listdir(path+'wav/dev/')
+        folders += [path+'wav/dev/'+i for i in dev]
+        test = os.listdir(path+'wav/test/')
+        folders += [path+'wav/test/'+i for i in test]
+        files = []
+        for folder in folders:
+            files += [folder+'/'+i for i in os.listdir(folder) if i[:-4] in transcript]
+        return files
+    
+    def split(self, split_ratio=None, seed=42):
+        audio_dataset = self
+        size = len(audio_dataset)
+        my_split_ratio = self.split_ratio if split_ratio is None else split_ratio
+        lengths = [(i*size)//sum(my_split_ratio) for i in my_split_ratio]
+        lengths[-1] = size - sum(lengths[:-1])
+        split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
+        return split_dataset
+
 class STCMDSDataset(Dataset):
 
     def __init__(self, data_path, sample_rate=16000, transform=None):
@@ -162,7 +233,8 @@ class LoaderGenerator:
 
 if __name__ == '__main__':
     # dataset = AudioDataset('./data/ST-CMDS-20170001_1-OS/')
-    dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/')
+    # dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/')
+    dataset = AiShellDataset('./data/data_aishell/')
     batch_size = 8
     train_set, test_set = dataset.split([1000, 5])
     k_size = 5 # kernel size for audio encoder

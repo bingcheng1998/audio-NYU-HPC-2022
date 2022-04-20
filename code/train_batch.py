@@ -9,7 +9,7 @@ from pypinyin import lazy_pinyin, Style
 from os.path import exists
 
 from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
-from utils.dataset import AudioDataset, LoaderGenerator, CvCorpus8Dataset
+from utils.dataset import AudioDataset, LoaderGenerator, CvCorpus8Dataset, AiShellDataset
 from utils.helper import get_labels
 
 def save_log(file_name, log, mode='a', path = './log/n4-'):
@@ -45,8 +45,9 @@ def chinese2pinyin(text):
     return pinyin
 
 save_log(f'e.txt', ['Loading Dataset ...'])
-dataset = AudioDataset('./data/ST-CMDS-20170001_1-OS/')
+# dataset = AudioDataset('./data/ST-CMDS-20170001_1-OS/')
 # dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/')
+dataset = AiShellDataset('./data/data_aishell/')
 train_set, test_set = dataset.split()
 batch_size = train_set.dataset.batch_size # tain batch size
 test_batch = batch_size//4 # test batch size
