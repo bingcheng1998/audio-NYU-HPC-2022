@@ -1,9 +1,55 @@
-import os
-from numpy import dtype
-import torch
-from torch.utils.data import Dataset, DataLoader, random_split
-import torchaudio
+
+
 import json
+import os
+
+import pandas as pd
+import torch
+import torchaudio
+from numpy import dtype
+from torch.utils.data import DataLoader, Dataset, random_split
+
+
+class SpeechOceanDataset(Dataset):
+
+    def __init__(self, data_path, sample_rate=16000, transform=None):
+        meta_data = data_path + 'metadata.csv'
+        self.meta_data = pd.read_csv(meta_data, sep='\t')
+        self.dataset_file_num = len(self.meta_data)
+        self.data_path = data_path
+        self.transform = transform
+        self.sample_rate = sample_rate
+        self.threshold = 100000 # to avoid GPU memory used out
+        self.batch_size = 128 # to avoid GPU memory used out
+        self.split_ratio = [100, 5]
+
+    def __len__(self):
+        return self.dataset_file_num
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        if idx >= self.dataset_file_num:
+            return {'audio': None, 'text': None}
+        audio_name = os.path.join(self.data_path,
+                                  self.meta_data.iloc[idx, 0])
+        waveform, sample_rate = torchaudio.load(audio_name)
+        audio_content = self.meta_data.iloc[idx, 1]
+        if sample_rate != self.sample_rate:
+            waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
+        sample = {'audio': waveform, 'text': audio_content}
+        if self.transform:
+            sample = self.transform(sample)
+        return sample
+
+    def split(self, split_ratio=None, seed=42):
+        audio_dataset = self
+        size = len(audio_dataset)
+        my_split_ratio = self.split_ratio if split_ratio is None else split_ratio
+        lengths = [(i*size)//sum(my_split_ratio) for i in my_split_ratio]
+        lengths[-1] = size - sum(lengths[:-1])
+        split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
+        return split_dataset
 
 class PrimeWordsDataset(Dataset):
 
@@ -177,7 +223,6 @@ class STCMDSDataset(Dataset):
         
 AudioDataset = STCMDSDataset
 
-import pandas as pd
 class CvCorpus8Dataset(Dataset):
 
     def __init__(self, data_path, sample_rate=16000, transform=None):
@@ -285,7 +330,8 @@ if __name__ == '__main__':
     # dataset = AudioDataset('./data/ST-CMDS-20170001_1-OS/')
     # dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/')
     # dataset = AiShellDataset('./data/data_aishell/')
-    dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/')
+    # dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/')
+    dataset = SpeechOceanDataset('./data/zhspeechocean/')
     batch_size = 8
     train_set, test_set = dataset.split()
     k_size = 5 # kernel size for audio encoder
