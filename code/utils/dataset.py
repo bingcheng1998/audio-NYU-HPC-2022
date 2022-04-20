@@ -18,7 +18,7 @@ class PrimeWordsDataset(Dataset):
         self.sample_rate = sample_rate
         self.threshold = 220000 # to avoid GPU memory used out
         self.batch_size = 40 # to avoid GPU memory used out
-        self.split_ratio = [1000, 2]
+        self.split_ratio = [1000, 8]
 
     def __len__(self):
         return self.dataset_file_num

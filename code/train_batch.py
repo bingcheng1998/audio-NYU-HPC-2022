@@ -12,7 +12,7 @@ from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
 from utils.dataset import *
 from utils.helper import get_labels
 
-def save_log(file_name, log, mode='a', path = './log/n4-'):
+def save_log(file_name, log, mode='a', path = './log/n5-'):
     with open(path+file_name, mode) as f:
         if mode == 'a':
             f.write('\n')
@@ -39,13 +39,8 @@ labels = get_labels()
 k_size = wave2vec_model.feature_extractor.conv_layers[0].conv.kernel_size[0] # kernel size for audio encoder
 mean = lambda x: sum(x)/len(x)
 
-# def chinese2pinyin(text):
-#     pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
-#     pinyin = [i for i in '|'.join(pinyin)]
-#     return pinyin
-
 def chinese2pinyin(text):
-    pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'-')
+    pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
     pinyin = [i for i in '|'.join(pinyin)]
     return pinyin
 
