@@ -2,11 +2,11 @@
 #SBATCH --nodes=1                        # requests 3 compute servers
 #SBATCH --ntasks-per-node=1              # runs 2 tasks on each server
 #SBATCH --cpus-per-task=1                # uses 1 compute core per task
-#SBATCH --time=4:00:00
+#SBATCH --time=20:00:00
 #SBATCH --mem=4GB                        # CPU memory
 #SBATCH --job-name=python-train-audio-zh
 #SBATCH --mail-type=END
-#SBATCH --mail-user=bh2283h@nyu.edu
+#SBATCH --mail-user=bh2283@nyu.edu
 #SBATCH --output=log/audio-zh-%j.out
 #SBATCH --gres=gpu:rtx8000:1             # ~40G memory in total
 

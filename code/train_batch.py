@@ -10,7 +10,7 @@ from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
 from utils.dataset import *
 from utils.helper import get_labels
 
-def save_log(file_name, log, mode='a', path = './log/n5-'):
+def save_log(file_name, log, mode='a', path = './log/n7-'):
     with open(path+file_name, mode) as f:
         if mode == 'a':
             f.write('\n')
@@ -30,7 +30,7 @@ save_log(f'e.txt', ['device:', device])
 save_log(f'e.txt', ['HPC Node:', os.uname()[1]])
 
 NUM_EPOCHS = 5
-LOAD_PATH = './checkpoint/model_AiShell.pt' # checkpoint used if exist
+LOAD_PATH = './checkpoint/model_SpeechOcean.pt' # checkpoint used if exist
 bundle = torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN
 wave2vec_model = bundle.get_model()
 labels = get_labels()
@@ -44,15 +44,15 @@ def chinese2pinyin(text):
 
 save_log(f'e.txt', ['Loading Dataset ...'])
 # dataset = AudioDataset('./data/ST-CMDS-20170001_1-OS/')
-# dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/')
 # dataset = AiShellDataset('./data/data_aishell/')
 dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/')
+# dataset = SpeechOceanDataset('./data/zhspeechocean/')
 train_set, test_set = dataset.split()
 batch_size = train_set.dataset.batch_size # tain batch size
-test_batch = batch_size//4 # test batch size
+test_batch = batch_size//4 # test batch size, keep bs small to save memory
 loaderGenerator = LoaderGenerator(labels, chinese2pinyin, k_size)
 train_loader = loaderGenerator.dataloader(train_set, batch_size)
-test_loader = loaderGenerator.dataloader(test_set, test_batch, shuffle=False) # keep bs small to save memory
+test_loader = loaderGenerator.dataloader(test_set, test_batch, shuffle=False)
 save_log(f'e.txt', ['train_set:', len(train_set), 'test_set:',len(test_set)])
 save_log(f'e.txt', ['train batch_size:', batch_size, ', test batch_size', test_batch])
 
@@ -83,8 +83,7 @@ params = list(model.aux.parameters())+list(model.encoder.parameters())
 # params = model.aux.parameters()
 model = model.to(device)
 
-optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
+optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9)
 ctc_loss = torch.nn.CTCLoss(zero_infinity=True)
 initial_epoch = 0
 
@@ -97,11 +96,12 @@ def load_checkpoint(path):
             model.aux.load_state_dict(checkpoint['model_state_dict'])
         if 'model_encoder_dict' in checkpoint:
             model.encoder.load_state_dict(checkpoint['model_encoder_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         initial_epoch = checkpoint['epoch']
         loss = checkpoint['loss']
         save_log(f'e.txt', ['initial_epoch:', initial_epoch, 'loss:', loss])
 load_checkpoint(LOAD_PATH)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 
 def test_decoder(epoch, k):
     model.eval()
@@ -131,12 +131,9 @@ def save_temp(EPOCH, LOSS):
     PATH = f"./checkpoint/model_temp.pt"
     dump_model(EPOCH, LOSS, PATH)
     
-
 def save_checkpoint(EPOCH, LOSS):
     PATH = f"./checkpoint/model_{EPOCH}_{'%.3f' % LOSS}.pt"
     dump_model(EPOCH, LOSS, PATH)
-
-
 
 def test():
     model.eval()
@@ -187,13 +184,14 @@ def train(epoch=1):
             
             batch_train_loss.append(loss.item())
 
-            if i_batch % (1000 // batch_size) == 0:
+            if i_batch % (1000 // batch_size) == 0: # log about each 1000 data
                 test_loss = test()
                 # test_loss = 0
                 train_loss = mean(batch_train_loss)
                 test_loss_q.append(test_loss)
                 train_loss_q.append(train_loss)
-                save_log(f'e{epoch}.txt', ['🟣 epoch', epoch, 'data', i_batch*batch_size, 'lr', scheduler.get_last_lr(), 
+                save_log(f'e{epoch}.txt', ['🟣 epoch', epoch, 'data', i_batch*batch_size, 
+                    'lr', scheduler.get_last_lr(), 
                     'train_loss', train_loss, 'test_loss', test_loss])
                 save_temp(epoch, test_loss) # save temp checkpoint
                 test_decoder(epoch, 5)
