@@ -30,7 +30,7 @@ save_log(f'e.txt', ['device:', device])
 save_log(f'e.txt', ['HPC Node:', os.uname()[1]])
 
 NUM_EPOCHS = 5
-LOAD_PATH = './checkpoint/model_SpeechOcean.pt' # checkpoint used if exist
+LOAD_PATH = './checkpoint/model_PrimeWords.pt' # checkpoint used if exist
 bundle = torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN
 wave2vec_model = bundle.get_model()
 labels = get_labels()

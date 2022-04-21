@@ -11,7 +11,6 @@ import os
 import pandas as pd
 import torch
 import torchaudio
-from numpy import dtype
 from torch.utils.data import DataLoader, Dataset, random_split
 
 
@@ -202,7 +201,6 @@ class STCMDSDataset(Dataset):
 
         audio_name = self.get_audio(idx)
         waveform, sample_rate = torchaudio.load(audio_name)
-        waveform = waveform
         if sample_rate != self.sample_rate:
             waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
         audio_content = self.get_text(idx)
