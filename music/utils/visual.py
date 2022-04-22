@@ -7,10 +7,11 @@ import torch.nn as nn
 import torchaudio
 
 matplotlib.rcParams['font.family'] = ['SimHei']
-matplotlib.rcParams['figure.dpi'] = 400
+matplotlib.rcParams['figure.dpi'] = 200
 import librosa
 
 from .helper import initial_table
+from .dataset import get_audio, parser_line
 
 
 def merge_note(text, phoneme, note, note_duration):
@@ -127,5 +128,12 @@ def plot_alignment(waveform, text, phoneme, note, note_duration, phoneme_duratio
         ax3.annotate(slur_note[i], (x0+shift_pos, 0.5), color='black', fontsize=fontsize)
     ax3.annotate(text, ((sum(phoneme_duration)-len(text)/8)*ratio/2, -0.9), color='black', fontsize=fontsize)
     plt.subplots_adjust(wspace =0, hspace =0)
-    if save_png: plt.savefig('./img.png', dpi=400, transparent=False)
+    if save_png: plt.savefig('./img.png', dpi=200, transparent=False)
     plt.show()
+
+
+def plot_line(line, path):
+    id, text, phoneme, note, note_duration, phoneme_duration, slur_note = parser_line(line)
+    waveform = get_audio(id, path)
+    plot_alignment(waveform[0], text, phoneme, note, note_duration, phoneme_duration, slur_note)
+    
