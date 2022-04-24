@@ -20,3 +20,4 @@ pytorch-singularity/
 *.mp3
 music/data/
 music/img.png
+.DS_Store
