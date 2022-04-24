@@ -1,7 +1,7 @@
 import torchaudio
 
 def get_audio(id, path, sr = 16000):
-    wav_path = path+'wavs/'+id+'.wav'
+    wav_path = path+'wavs/'+str(id)+'.wav'
     waveform, sample_rate = torchaudio.load(wav_path)
     if sample_rate != sr:
         waveform = torchaudio.functional.resample(waveform[0].unsqueeze(0), sample_rate, sr)
