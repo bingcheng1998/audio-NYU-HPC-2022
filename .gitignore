@@ -21,3 +21,5 @@ pytorch-singularity/
 music/data/
 music/img.png
 .DS_Store
+music/checkpoint/
+music/log/
