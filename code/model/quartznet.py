@@ -50,10 +50,13 @@ class QuartzNet(nn.Module):
                       kernel_size=1, bias=True)
         self.apply(lambda x: init_weights(x, mode=init_mode))
 
-    def forward(self, audio_signal):
+    def forward(self, audio_signal, lengths = None):
         feat = self.encoder(audio_signal)
         # BxCxT
-        return self.classify(feat)
+        if lengths is not None:
+            stride = self.encoder[0].net[0][0].stride[0]
+            lengths = torch.ceil(lengths/stride).int()
+        return self.classify(feat), lengths
 
     def load_weights(self, path, map_location='cpu'):
         weights = torch.load(path, map_location=map_location)

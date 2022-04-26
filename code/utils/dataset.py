@@ -290,13 +290,14 @@ class CvCorpus8Dataset(Dataset):
         return split_dataset
 
 class LoaderGenerator:
-    def __init__(self, labels, chinese2pinyin, k_size=0) -> None:
+    def __init__(self, 
+        labels, k_size=0, 
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        ) -> None:
         self.k_size = k_size
         self.labels = labels
         self.look_up = {s: i for i, s in enumerate(labels)}
-        self.chinese2pinyin = chinese2pinyin
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.k_size = 13 # set a small integer, should be encoder kernel size, will be modidfied in dataloader
+        self.device = device
 
     def label2id(self, str):
         return [self.look_up[i] for i in str]
@@ -307,28 +308,35 @@ class LoaderGenerator:
     def batch_filter(self, batch:list):
         # remove all audio with tag if audio length > threshold
         for i in range(len(batch)-1, -1, -1):
-            if batch[i]['audio'].shape[-1] > self.threshold:
+            if batch[i]['audio'].shape[-1] > self.threshold/256: # 256 is the hop_length of fft
                 del batch[i]
         return batch
 
     def collate_wrapper(self, batch):
         batch = self.batch_filter(batch)
         bs = len(batch)
+        # 1. shift each audio right with several blocks < first kernel in the model
         rand_shift = torch.randint(self.k_size, (bs,))
-        audio_list = [batch[i]['audio'][:,rand_shift[i]:] for i in range(bs)]
+        audio_list = [
+            torch.cat(
+            (torch.log(torch.full((1, 80, rand_shift[i]), 2**(-15))), batch[i]['audio']), -1)
+            for i in range(bs)]
+        # 2. get audio length and pad them to the same length
         audio_length = torch.tensor([audio.shape[-1] for audio in audio_list])
         max_audio_length = torch.max(audio_length)
         audio_list = torch.cat([
             torch.cat(
-            (audio, torch.zeros(max_audio_length-audio.shape[-1]).unsqueeze(0)), -1)
+            (audio, torch.log(torch.full((1, 80, max_audio_length-audio.shape[-1]), 2**(-15)))), -1)
             for audio in audio_list], 0)
-        target_list = [self.label2id(self.chinese2pinyin(item['text'])) for item in batch]
+        # 3. do the same padding process on text
+        target_list = [self.label2id(item['text']) for item in batch]
         target_length = torch.tensor([len(l) for l in target_list])
         max_target_length = torch.max(target_length)
         target_list = torch.cat([
             torch.cat(
             (torch.tensor(l), torch.zeros([max_target_length-len(l)], dtype=torch.int)), -1).unsqueeze(0) 
             for l in target_list], 0)
+        # 4. return data on device
         device = self.device
         return {'audio': audio_list.to(device), 'target': target_list.to(device), 'audio_len': audio_length.to(device), 'target_len': target_length.to(device)}
 
@@ -343,26 +351,30 @@ if __name__ == '__main__':
     # dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/')
     # dataset = AiShellDataset('./data/data_aishell/')
     # dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/')
-    dataset = SpeechOceanDataset('./data/zhspeechocean/')
-    batch_size = 8
-    train_set, test_set = dataset.split()
-    k_size = 5 # kernel size for audio encoder
+    def audio_transform(sample, sample_rate):
+        audio = sample['audio']
+        text = sample['text']
+        mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,\
+            n_fft=1024,power=1,hop_length=256,win_length=1024, n_mels=80, \
+                f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney")
+        def chinese2pinyin(text):
+            pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
+            pinyin = [i for i in '|'.join(pinyin)]
+            return pinyin
+        safe_log = lambda x: torch.log(x+2**(-15))
+        return {'audio':safe_log(mel_transform(audio)),
+                'text': chinese2pinyin(text)}
+    dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
     from pypinyin import lazy_pinyin
-    def chinese2pinyin(text):
-        pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
-        pinyin = [i for i in '|'.join(pinyin)]
-        return pinyin
     from helper import get_labels
     labels = get_labels()
-    loaderGenerator = LoaderGenerator(labels, chinese2pinyin, k_size)
-    train_loader = loaderGenerator.dataloader(train_set, batch_size)
-    test_loader = loaderGenerator.dataloader(test_set, batch_size) # without backprop, can use larger batch
+    loaderGenerator = LoaderGenerator(get_labels(), k_size=33)
+    train_set, test_set = dataset.split()
+    train_loader = loaderGenerator.dataloader(train_set, batch_size=8)
     print('train_set:', len(train_set), 'test_set:',len(test_set))
     steps = 10
-    for i_batch, sample_batched in enumerate(test_loader):
+    for i_batch, sample_batched in enumerate(train_loader):
         print(sample_batched['audio'].shape, sample_batched['target'].shape)
-        # for i in sample_batched['audio']:
-        #     print(i.shape)
         if steps < 0:
             break
         steps -= 1
