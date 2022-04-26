@@ -64,17 +64,14 @@ class SpeechOceanDataset(SpeechDataset):
             sample = self.transform(sample, self.sample_rate)
         return sample
 
-class PrimeWordsDataset(Dataset):
+class PrimeWordsDataset(SpeechDataset):
 
     def __init__(self, data_path, sample_rate=16000, transform=None):
+        super().__init__(data_path, sample_rate, transform)
         with open(data_path+'set1_transcript.json') as f:
             json_data = json.load(f)
         self.json_data = json_data
-        # self.wav_files = self.get_all_wav_files(data_path, self.transcript)
         self.dataset_file_num = len(self.json_data)
-        self.data_path = data_path
-        self.transform = transform
-        self.sample_rate = sample_rate
         self.threshold = 220000 # to avoid GPU memory used out
         self.batch_size = 40 # to avoid GPU memory used out
         self.split_ratio = [1000, 8]
@@ -94,7 +91,7 @@ class PrimeWordsDataset(Dataset):
             waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
         sample = {'audio': waveform, 'text': audio_content}
         if self.transform:
-            sample = self.transform(sample)
+            sample = self.transform(sample, self.sample_rate)
         return sample
 
     def parse_line(self, line):
@@ -104,25 +101,14 @@ class PrimeWordsDataset(Dataset):
         path = self.data_path+'audio_files/'+file_name[0]+'/'+file_name[:2]+'/'+file_name
         return path
 
-    def split(self, split_ratio=None, seed=42):
-        audio_dataset = self
-        size = len(audio_dataset)
-        my_split_ratio = self.split_ratio if split_ratio is None else split_ratio
-        lengths = [(i*size)//sum(my_split_ratio) for i in my_split_ratio]
-        lengths[-1] = size - sum(lengths[:-1])
-        split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
-        return split_dataset
-
-class AiShellDataset(Dataset):
+class AiShellDataset(SpeechDataset):
 
     def __init__(self, data_path, sample_rate=16000, transform=None):
+        super().__init__(data_path, sample_rate, transform)
         transcript_file = data_path+'transcript/aishell_transcript_v0.8.txt'
         self.transcript = self.gen_transcript(transcript_file)
         self.wav_files = self.get_all_wav_files(data_path, self.transcript)
         self.dataset_file_num = len(self.wav_files)
-        self.data_path = data_path
-        self.transform = transform
-        self.sample_rate = sample_rate
         self.threshold = 120000 # to avoid GPU memory used out
         self.batch_size = 80 # to avoid GPU memory used out
         self.split_ratio = [1000, 5]
@@ -144,7 +130,7 @@ class AiShellDataset(Dataset):
         audio_content = self.transcript[dict_id]
         sample = {'audio': waveform, 'text': audio_content}
         if self.transform:
-            sample = self.transform(sample)
+            sample = self.transform(sample, self.sample_rate)
         return sample
 
     def parse_line(self, line):
@@ -184,9 +170,10 @@ class AiShellDataset(Dataset):
         split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
         return split_dataset
 
-class STCMDSDataset(Dataset):
+class STCMDSDataset(SpeechDataset):
 
     def __init__(self, data_path, sample_rate=16000, transform=None):
+        super().__init__(data_path, sample_rate, transform)
         files = os.listdir(data_path)
         file_names = []
         for file in files:
@@ -194,9 +181,6 @@ class STCMDSDataset(Dataset):
                 file_names.append(file.split('.')[0])
         self.dataset_file_num = len(file_names)
         self.file_names = file_names
-        self.data_path = data_path
-        self.transform = transform
-        self.sample_rate = sample_rate
         self.threshold = 90000 # to avoid GPU memory used out
         self.batch_size = 128 # to avoid GPU memory used out
         self.split_ratio = [1000, 5]
@@ -215,7 +199,7 @@ class STCMDSDataset(Dataset):
         audio_content = self.get_text(idx)
         sample = {'audio': waveform, 'text': audio_content}
         if self.transform:
-            sample = self.transform(sample)
+            sample = self.transform(sample, self.sample_rate)
         return sample
 
     def get_audio(self, x): 
@@ -223,21 +207,13 @@ class STCMDSDataset(Dataset):
         
     def get_text(self, x): 
         return open(self.data_path+self.file_names[x]+'.txt', "r").read() if x < self.dataset_file_num else None
-    
-    def split(self, split_ratio=None, seed=42):
-        audio_dataset = self
-        size = len(audio_dataset)
-        my_split_ratio = self.split_ratio if split_ratio is None else split_ratio
-        lengths = [(i*size)//sum(my_split_ratio) for i in my_split_ratio]
-        lengths[-1] = size - sum(lengths[:-1])
-        split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
-        return split_dataset
-        
+       
 AudioDataset = STCMDSDataset
 
-class CvCorpus8Dataset(Dataset):
+class CvCorpus8Dataset(SpeechDataset):
 
     def __init__(self, data_path, sample_rate=16000, transform=None):
+        super().__init__(data_path, sample_rate, transform)
         df1 = pd.read_csv(data_path+'validated.tsv',sep='\t')[['path', 'sentence']]
         # df2 = pd.read_csv(data_path+'invalidated.tsv',sep='\t')[['path', 'sentence']]
         # df3 = pd.read_csv(data_path+'other.tsv',sep='\t')[['path', 'sentence']]
@@ -249,9 +225,6 @@ class CvCorpus8Dataset(Dataset):
         self.audio_path = audio_path
         self.sentence_text = sentence_text
         self.size = len(audio_path)
-        self.data_path = data_path
-        self.transform = transform
-        self.sample_rate = sample_rate
         self.threshold = 170000 # to avoid GPU memory used out
         self.batch_size = 64 # to avoid GPU memory used out
         self.split_ratio = [100, 1]
@@ -271,7 +244,7 @@ class CvCorpus8Dataset(Dataset):
         audio_content = self.get_text(idx)
         sample = {'audio': waveform, 'text': audio_content}
         if self.transform:
-            sample = self.transform(sample)
+            sample = self.transform(sample, self.sample_rate)
         return sample
 
     def get_audio(self, x): 
@@ -279,15 +252,6 @@ class CvCorpus8Dataset(Dataset):
         
     def get_text(self, x): 
         return self.sentence_text[x] if x < len(self) else None
-    
-    def split(self, split_ratio=None, seed=42):
-        audio_dataset = self
-        size = len(audio_dataset)
-        my_split_ratio = self.split_ratio if split_ratio is None else split_ratio
-        lengths = [(i*size)//sum(my_split_ratio) for i in my_split_ratio]
-        lengths[-1] = size - sum(lengths[:-1])
-        split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
-        return split_dataset
 
 class LoaderGenerator:
     def __init__(self, 
@@ -317,16 +281,17 @@ class LoaderGenerator:
         bs = len(batch)
         # 1. shift each audio right with several blocks < first kernel in the model
         rand_shift = torch.randint(self.k_size, (bs,))
+        n_mel = batch[0]['audio'].shape[-2]
         audio_list = [
             torch.cat(
-            (torch.log(torch.full((1, 80, rand_shift[i]), 2**(-15))), batch[i]['audio']), -1)
+            (torch.zeros((1, n_mel, rand_shift[i])), batch[i]['audio']), -1)
             for i in range(bs)]
         # 2. get audio length and pad them to the same length
         audio_length = torch.tensor([audio.shape[-1] for audio in audio_list])
         max_audio_length = torch.max(audio_length)
         audio_list = torch.cat([
             torch.cat(
-            (audio, torch.log(torch.full((1, 80, max_audio_length-audio.shape[-1]), 2**(-15)))), -1)
+            (audio, torch.zeros((1, n_mel, max_audio_length-audio.shape[-1]))), -1)
             for audio in audio_list], 0)
         # 3. do the same padding process on text
         target_list = [self.label2id(item['text']) for item in batch]
@@ -363,8 +328,13 @@ if __name__ == '__main__':
             return pinyin
         safe_log = lambda x: torch.log(x+2**(-15))
         return {'audio':safe_log(mel_transform(audio)),
-                'text': chinese2pinyin(text)}
-    dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
+                'text': chinese2pinyin(text),
+                'chinese': text}
+    # dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
+    # dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
+    # dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=audio_transform)
+    # dataset = AiShellDataset('./data/data_aishell/', transform=audio_transform)
+    dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/', transform=audio_transform)
     from pypinyin import lazy_pinyin
     from helper import get_labels
     labels = get_labels()

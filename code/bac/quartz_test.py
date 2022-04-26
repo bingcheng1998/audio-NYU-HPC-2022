@@ -8,7 +8,7 @@ from os.path import exists
 
 from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
 
-from utils.dataset import SpeechOceanDataset, LoaderGenerator
+from utils.dataset import SpeechOceanDataset, LoaderGenerator, STCMDSDataset
 from utils.helper import get_labels
 
 from model.quartznet import QuartzNet
@@ -50,7 +50,8 @@ def audio_transform(sample, sample_rate):
 batch_size = 8
 test_batch = 8
 save_log(f'e.txt', ['Loading Dataset ...'])
-dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
+# dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
+dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
 labels = get_labels()
 loaderGenerator = LoaderGenerator(labels, k_size=33)
 train_set, test_set = dataset.split()
@@ -87,7 +88,7 @@ def test_decoder(epoch, k):
             save_log(f'e{epoch}.txt', [i, sample['audio'].shape, sample['chinese']])
             waveform = sample['audio']
             emissions, _ = model(waveform.to(device))
-            print('emissions', emissions.shape)
+            # print('emissions', emissions.shape)
             emissions = torch.log_softmax(emissions, dim=-2)
             emission = emissions[0].cpu().detach().T
             # print('emission.shape', emission.shape)
@@ -98,15 +99,15 @@ def test_decoder(epoch, k):
 test_decoder('', 5)
 
 NUM_EPOCHS=5
-
+torch.autograd.set_detect_anomaly(True)
 def train(epoch=1):
     train_loss_q = []
     test_loss_q = []
     for epoch in range(0, epoch):
-        model.train()
+        
         batch_train_loss = []
         for i_batch, sample_batched in enumerate(train_loader):
-
+            model.train()
             # Step 1. Prepare Data
             waveform = sample_batched['audio']
             wave_len = sample_batched['audio_len']
@@ -116,7 +117,7 @@ def train(epoch=1):
             # Step 2. Run our forward pass
             emissions, emission_len = model(waveform, wave_len)
             emissions = torch.log_softmax(emissions, dim=-2).permute(2,0,1)
-            print(emissions.shape, target.shape, emission_len.shape, target_len.shape)
+            # print(emissions.shape, target.shape, emission_len.shape, target_len.shape)
             # print(emissions[0], target[0], wave_len[0], target_len[0])
             loss = ctc_loss(emissions, target, emission_len, target_len)
 
