@@ -30,8 +30,8 @@ def save_log(file_name, log, mode='a', path = './log/n8-'):
             f.write(' '.join(log))
             print(' '.join(log))
 
-LOAD_PATH = './checkpoint/quartz/model-temp.pt'
-# LOAD_PATH = './checkpoint/quartz/epoch_5_2_new_data_0.pt'
+# LOAD_PATH = './checkpoint/quartz/model-temp.pt'
+LOAD_PATH = './checkpoint/quartz/epoch_5_2_new_data_0.pt'
 N_MELS = 64
 torch.random.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -57,8 +57,8 @@ def audio_transform(sample, sample_rate):
                 'chinese': text}
 
 save_log(f'e.txt', ['Loading Dataset ...'])
-# dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
-dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
+dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
+# dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
 labels = get_labels()
 loaderGenerator = LoaderGenerator(labels, k_size=33)
 train_set, test_set = dataset.split()
@@ -92,13 +92,19 @@ def load_checkpoint(path):
             model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         initial_epoch = checkpoint['epoch']
-        loss = checkpoint['loss']
-        # loss = 0
+        # loss = checkpoint['loss']
+        loss = 0
         save_log(f'e.txt', ['initial_epoch:', initial_epoch, 'loss:', loss])
 load_checkpoint(LOAD_PATH)
 
-# model.c4 = conv_bn_act(1024, len(labels), kernel_size=1).to(device)
-# torch.nn.init.xavier_uniform(model.c4[0].weight, gain=nn.init.calculate_gain('relu'))
+params = list(model.blocks.parameters())\
+    +list(model.c1.parameters())\
+        +list(model.c2.parameters())\
+            +list(model.c3.parameters())
+for param in params:
+    param.requires_grad = False
+model.c4 = conv_bn_act(1024, len(labels), kernel_size=1).to(device)
+torch.nn.init.xavier_uniform(model.c4[0].weight, gain=nn.init.calculate_gain('relu'))
 
 def test_decoder(epoch, k):
     model.eval()
