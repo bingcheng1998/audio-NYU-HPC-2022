@@ -61,7 +61,7 @@ class SpeechOceanDataset(SpeechDataset):
             waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
         sample = {'audio': waveform, 'text': audio_content}
         if self.transform:
-            sample = self.transform(sample)
+            sample = self.transform(sample, self.sample_rate)
         return sample
 
 class PrimeWordsDataset(Dataset):

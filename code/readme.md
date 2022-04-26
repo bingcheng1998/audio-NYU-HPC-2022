@@ -8,8 +8,9 @@
 
 ## TODO
 
-- [ ] 拼音按照音素划分，符合163数据集的标注
 - [ ] quartz 数据集制作，简化为同一个母类，使用transformer对数据预处理
+- [ ] quartz + fft embedding dataset train 26 字母
+- [ ] 拼音按照音素划分，符合163数据集的标注
 - [ ] 重写dataloader，数据集+mask
 - [ ] 训练quartz
 
