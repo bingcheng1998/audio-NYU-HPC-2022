@@ -13,34 +13,16 @@ import torch
 import torchaudio
 from torch.utils.data import DataLoader, Dataset, random_split
 
-class SpeechDataset(Dataset):
-    def __init__(self, data_path, sample_rate=16000, transform=None):
-        super().__init__()
-        self.data_path = data_path
-        self.transform = transform
-        self.sample_rate = sample_rate
-        self.threshold = 100000 # to avoid GPU memory used out
-        self.batch_size = 128 # to avoid GPU memory used out
-        self.split_ratio = [100, 5]
-    def __len__(self):
-        pass
-    def __getitem__(self, idx):
-        pass
-    def split(self, split_ratio=None, seed=42):
-        audio_dataset = self
-        size = len(audio_dataset)
-        my_split_ratio = self.split_ratio if split_ratio is None else split_ratio
-        lengths = [(i*size)//sum(my_split_ratio) for i in my_split_ratio]
-        lengths[-1] = size - sum(lengths[:-1])
-        split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
-        return split_dataset
 
-class SpeechOceanDataset(SpeechDataset):
+class SpeechOceanDataset(Dataset):
+
     def __init__(self, data_path, sample_rate=16000, transform=None):
-        super().__init__(data_path, sample_rate, transform)
         meta_data = data_path + 'metadata.csv'
         self.meta_data = pd.read_csv(meta_data, sep='\t')
         self.dataset_file_num = len(self.meta_data)
+        self.data_path = data_path
+        self.transform = transform
+        self.sample_rate = sample_rate
         self.threshold = 100000 # to avoid GPU memory used out
         self.batch_size = 128 # to avoid GPU memory used out
         self.split_ratio = [100, 5]
@@ -63,6 +45,15 @@ class SpeechOceanDataset(SpeechDataset):
         if self.transform:
             sample = self.transform(sample)
         return sample
+
+    def split(self, split_ratio=None, seed=42):
+        audio_dataset = self
+        size = len(audio_dataset)
+        my_split_ratio = self.split_ratio if split_ratio is None else split_ratio
+        lengths = [(i*size)//sum(my_split_ratio) for i in my_split_ratio]
+        lengths[-1] = size - sum(lengths[:-1])
+        split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
+        return split_dataset
 
 class PrimeWordsDataset(Dataset):
 
