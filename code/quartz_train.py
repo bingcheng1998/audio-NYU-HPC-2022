@@ -8,7 +8,7 @@ from os.path import exists
 
 from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
 
-from utils.dataset import SpeechOceanDataset, LoaderGenerator, STCMDSDataset
+from utils.dataset import SpeechOceanDataset, LoaderGenerator, STCMDSDataset, AiShellDataset
 from utils.helper import get_labels
 
 # from model.quartznet import QuartzNet
@@ -30,8 +30,8 @@ def save_log(file_name, log, mode='a', path = './log/n8-'):
             f.write(' '.join(log))
             print(' '.join(log))
 
-# LOAD_PATH = './checkpoint/quartz/model-temp.pt'
-LOAD_PATH = './checkpoint/quartz/epoch_5_2_new_data_0.pt'
+LOAD_PATH = './checkpoint/quartz/model-temp.pt'
+# LOAD_PATH = './checkpoint/quartz/epoch_5_2_new_data_0.pt'
 N_MELS = 64
 torch.random.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -57,8 +57,9 @@ def audio_transform(sample, sample_rate):
                 'chinese': text}
 
 save_log(f'e.txt', ['Loading Dataset ...'])
-dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
-# dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
+# dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
+# dataset = AiShellDataset('./data/data_aishell/', transform=audio_transform)
+dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
 labels = get_labels()
 loaderGenerator = LoaderGenerator(labels, k_size=33)
 train_set, test_set = dataset.split()
@@ -70,7 +71,6 @@ safe_log = lambda x: torch.log(x+2**(-15))
 
 save_log(f'e.txt', ['train_set:', len(train_set), 'test_set:',len(test_set)])
 save_log(f'e.txt', ['train batch_size:', batch_size, ', test batch_size', test_batch])
-
 
 
 model = QuartzNet(n_mels = N_MELS, num_classes=len(labels))
@@ -90,21 +90,26 @@ def load_checkpoint(path):
         checkpoint = torch.load(path, map_location=device)
         if 'model_state_dict' in checkpoint:
             model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         initial_epoch = checkpoint['epoch']
         # loss = checkpoint['loss']
         loss = 0
         save_log(f'e.txt', ['initial_epoch:', initial_epoch, 'loss:', loss])
 load_checkpoint(LOAD_PATH)
 
-params = list(model.blocks.parameters())\
-    +list(model.c1.parameters())\
-        +list(model.c2.parameters())\
-            +list(model.c3.parameters())
-for param in params:
-    param.requires_grad = False
-model.c4 = conv_bn_act(1024, len(labels), kernel_size=1).to(device)
-torch.nn.init.xavier_uniform(model.c4[0].weight, gain=nn.init.calculate_gain('relu'))
+# params = list(model.blocks.parameters())\
+#         +list(model.c2.parameters())\
+#             +list(model.c3.parameters())
+#             # +list(model.c1.parameters())
+# for param in params:
+#     param.requires_grad = False
+
+# model.c4 = conv_bn_act(1024, len(labels), kernel_size=1).to(device)
+# torch.nn.init.xavier_uniform_(model.c4[0].weight, gain=nn.init.calculate_gain('relu'))
+for param in model.parameters():
+    param.requires_grad = True
+optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 
 def test_decoder(epoch, k):
     model.eval()
@@ -191,7 +196,7 @@ def train(epoch=1):
             # Step 3. Run our backward pass
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 15)
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), 15)
             optimizer.step()
 
             if loss.item()!=loss.item(): # if loss == NaN, break

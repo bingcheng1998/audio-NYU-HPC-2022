@@ -312,10 +312,6 @@ class LoaderGenerator:
                             shuffle, num_workers=0, collate_fn=self.collate_wrapper)
 
 if __name__ == '__main__':
-    # dataset = AudioDataset('./data/ST-CMDS-20170001_1-OS/')
-    # dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/')
-    # dataset = AiShellDataset('./data/data_aishell/')
-    # dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/')
     def audio_transform(sample, sample_rate):
         audio = sample['audio']
         text = sample['text']
