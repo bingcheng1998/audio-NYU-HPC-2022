@@ -9,11 +9,12 @@ from os.path import exists
 from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
 
 from utils.dataset import SpeechOceanDataset, LoaderGenerator, STCMDSDataset, AiShellDataset
-from utils.helper import get_labels
+# from utils.helper import get_labels
 
 # from model.quartznet import QuartzNet
 from model.quartz2 import QuartzNet, conv_bn_act
-from model.config import quartznet5x5_config
+# from model.config import quartznet5x5_config
+from utils.chinese2pinyin import chinese2pinyin, get_labels
 
 mean = lambda x: sum(x)/len(x)
 
@@ -30,9 +31,10 @@ def save_log(file_name, log, mode='a', path = './log/n8-'):
             f.write(' '.join(log))
             print(' '.join(log))
 
-LOAD_PATH = './checkpoint/quartz/model-temp.pt'
+LOAD_PATH = './checkpoint/quartz/model-temp-on.pt'
 # LOAD_PATH = './checkpoint/quartz/epoch_5_2_new_data_0.pt'
-N_MELS = 64
+N_MELS = 80
+NUM_EPOCHS=20
 torch.random.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 save_log(f'e.txt', ['torch:', torch.__version__])
@@ -47,24 +49,25 @@ def audio_transform(sample, sample_rate):
             n_fft=1024,power=1,hop_length=256,win_length=1024, n_mels=N_MELS, \
                 f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney")
 
-        def chinese2pinyin(text):
-            pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
-            pinyin = [i for i in '-'.join(pinyin)]
-            return pinyin
+        # def chinese2pinyin(text):
+        #     pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
+        #     pinyin = [i for i in '|'.join(pinyin)]
+        #     return pinyin
         # safe_log = lambda x: torch.log(x+2**(-15))
         return {'audio':mel_transform(audio),
                 'text': chinese2pinyin(text),
                 'chinese': text}
 
 save_log(f'e.txt', ['Loading Dataset ...'])
-# dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
+dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
 # dataset = AiShellDataset('./data/data_aishell/', transform=audio_transform)
-dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
+# dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
 labels = get_labels()
 loaderGenerator = LoaderGenerator(labels, k_size=33)
 train_set, test_set = dataset.split()
-batch_size = train_set.dataset.batch_size # tain batch size
-test_batch = batch_size//4
+# batch_size = int(train_set.dataset.batch_size*3) # tain batch size
+batch_size = 16
+test_batch = batch_size
 train_loader = loaderGenerator.dataloader(train_set, batch_size=batch_size)
 test_loader = loaderGenerator.dataloader(test_set, batch_size=test_batch)
 safe_log = lambda x: torch.log(x+2**(-15))
@@ -75,8 +78,8 @@ save_log(f'e.txt', ['train batch_size:', batch_size, ', test batch_size', test_b
 
 model = QuartzNet(n_mels = N_MELS, num_classes=len(labels))
 
-optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
+# optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+# scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 ctc_loss = torch.nn.CTCLoss(zero_infinity=True)
 decoder = GreedyCTCDecoder(labels=labels)
 # decoder = NaiveDecoder(labels=labels)
@@ -104,12 +107,12 @@ load_checkpoint(LOAD_PATH)
 # for param in params:
 #     param.requires_grad = False
 
-# model.c4 = conv_bn_act(1024, len(labels), kernel_size=1).to(device)
+model.c4 = conv_bn_act(1024, len(labels), kernel_size=1).to(device)
 # torch.nn.init.xavier_uniform_(model.c4[0].weight, gain=nn.init.calculate_gain('relu'))
 for param in model.parameters():
     param.requires_grad = True
-optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
+optimizer = torch.optim.SGD(model.parameters(), lr=0.005, momentum=0.9)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 
 def test_decoder(epoch, k):
     model.eval()
@@ -166,7 +169,6 @@ def test():
 
 save_log(f'e.txt', ['initial test loss:', test()])
 
-NUM_EPOCHS=5
 f_mask = torchaudio.transforms.FrequencyMasking(freq_mask_param=15)
 t_mask = torchaudio.transforms.TimeMasking(time_mask_param=35)
 
