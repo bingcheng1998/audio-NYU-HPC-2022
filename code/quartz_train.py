@@ -8,10 +8,9 @@ from os.path import exists
 
 from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
 
-from utils.dataset import SpeechOceanDataset, LoaderGenerator, STCMDSDataset, AiShellDataset
+from utils.dataset import SpeechOceanDataset, LoaderGenerator, STCMDSDataset, AiShellDataset, PrimeWordsDataset
 # from utils.helper import get_labels
 
-# from model.quartznet import QuartzNet
 from model.quartz2 import QuartzNet
 # from model.quartznet import QuartzNet
 from utils.chinese2pinyin2 import chinese2pinyin, get_labels
@@ -62,6 +61,7 @@ save_log(f'e.txt', ['Loading Dataset ...'])
 # dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
 # dataset = AiShellDataset('./data/data_aishell/', transform=audio_transform)
 dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
+# dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/', transform=audio_transform)
 labels = get_labels()
 loaderGenerator = LoaderGenerator(labels, k_size=33)
 train_set, test_set = dataset.split()
