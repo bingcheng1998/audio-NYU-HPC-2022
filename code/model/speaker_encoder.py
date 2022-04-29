@@ -13,6 +13,9 @@ class SpeakerEncoder(nn.Module):
                                 out_features=out_dim)
         self.relu = torch.nn.ReLU()
 
+        self.similarity_weight = nn.Parameter(torch.tensor([10.])) # ignore
+        self.similarity_bias = nn.Parameter(torch.tensor([-5.])) # ignore
+
     def forward(self, utterances, hidden_init=None):
         # spec [bs x n_mel x l]
         out, (hidden, cell) = self.lstm(utterances, hidden_init)
