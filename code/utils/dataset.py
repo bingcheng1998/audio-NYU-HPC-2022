@@ -87,7 +87,6 @@ class PrimeWordsDataset(SpeechDataset):
             return {'audio': None, 'text': None}
         audio_file, audio_content = self.parse_line(self.json_data[idx])
         waveform, sample_rate = torchaudio.load(self.get_wav(audio_file))
-        waveform = waveform
         if sample_rate != self.sample_rate:
             waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
         sample = {'audio': waveform, 'text': audio_content}
@@ -329,11 +328,11 @@ if __name__ == '__main__':
         return {'audio':safe_log(mel_transform(audio)),
                 'text': chinese2pinyin(text),
                 'chinese': text}
-    dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
+    # dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
     # dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
     # dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=audio_transform)
     # dataset = AiShellDataset('./data/data_aishell/', transform=audio_transform)
-    # dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/', transform=audio_transform)
+    dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/', transform=audio_transform)
     from pypinyin import lazy_pinyin
     from helper import get_labels
     labels = get_labels()
