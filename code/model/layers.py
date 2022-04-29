@@ -82,7 +82,7 @@ class MainBlock(nn.Module):
 
         temp_planes = inplanes
         net = []
-        for _ in range(repeat):
+        for _ in range(repeat-1):
             net.append(
                 get_conv_bn_layer(
                     temp_planes,
@@ -100,9 +100,22 @@ class MainBlock(nn.Module):
                 get_act_dropout_layer(dropout, activation)
             )
             temp_planes = planes
+        net.append(
+                get_conv_bn_layer(
+                    temp_planes,
+                    planes,
+                    kernel_size=kernel_size,
+                    stride=stride,
+                    dilation=dilation,
+                    padding=padding_val,
+                    groups=groups,
+                    separable=separable,
+                    normalization=normalization,
+                    norm_groups=norm_groups)
+            )
         self.net = nn.Sequential(*net)
         self.residual = residual
-        if self.residual:
+        if residual:
             self.residual_layer = get_conv_bn_layer(
                                 inplanes,
                                 planes,

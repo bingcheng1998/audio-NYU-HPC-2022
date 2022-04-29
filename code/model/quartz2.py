@@ -55,10 +55,11 @@ class QuartzNet(nn.Module):
                 QnetBlock(512, 512, 63, 1, R=5),
                 QnetBlock(512, 512, 75, 1, R=5)
         )
-        self.c2 = sepconv_bn(512, 512, kernel_size=87, dilation=2, padding=86)
+        # self.c2 = sepconv_bn(512, 512, kernel_size=87, dilation=2, padding=86)
+        self.c2 = conv_bn_act(512, 512, kernel_size=1)
         self.c3 = conv_bn_act(512, 1024, kernel_size=1)
-        self.c4 = conv_bn_act(1024, num_classes, kernel_size=1)
-
+        # self.c4 = conv_bn_act(1024, num_classes, kernel_size=1)
+        self.classify = nn.Conv1d(1024, num_classes, kernel_size=1, bias=True)
         self.init_weights()
 
 
@@ -74,4 +75,4 @@ class QuartzNet(nn.Module):
         if lengths is not None:
             stride = 2
             lengths = torch.ceil(lengths/stride).int()
-        return self.c4(c3), lengths
+        return self.classify(c3), lengths

@@ -12,9 +12,9 @@ from utils.dataset import SpeechOceanDataset, LoaderGenerator, STCMDSDataset, Ai
 # from utils.helper import get_labels
 
 # from model.quartznet import QuartzNet
-from model.quartz2 import QuartzNet, conv_bn_act
-# from model.config import quartznet5x5_config
-from utils.chinese2pinyin import chinese2pinyin, get_labels
+from model.quartz2 import QuartzNet
+# from model.quartznet import QuartzNet
+from utils.chinese2pinyin2 import chinese2pinyin, get_labels
 
 mean = lambda x: sum(x)/len(x)
 
@@ -31,11 +31,11 @@ def save_log(file_name, log, mode='a', path = './log/n8-'):
             f.write(' '.join(log))
             print(' '.join(log))
 
-LOAD_PATH = './checkpoint/quartz/model-temp-on.pt'
+LOAD_PATH = './checkpoint/quartz/model-temp-no.pt'
 # LOAD_PATH = './checkpoint/quartz/epoch_5_2_new_data_0.pt'
 N_MELS = 80
 NUM_EPOCHS=20
-torch.random.manual_seed(0)
+# torch.random.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 save_log(f'e.txt', ['torch:', torch.__version__])
 save_log(f'e.txt', ['torchaudio:', torchaudio.__version__])
@@ -59,14 +59,14 @@ def audio_transform(sample, sample_rate):
                 'chinese': text}
 
 save_log(f'e.txt', ['Loading Dataset ...'])
-dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
+# dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
 # dataset = AiShellDataset('./data/data_aishell/', transform=audio_transform)
-# dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
+dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
 labels = get_labels()
 loaderGenerator = LoaderGenerator(labels, k_size=33)
 train_set, test_set = dataset.split()
 # batch_size = int(train_set.dataset.batch_size*3) # tain batch size
-batch_size = 16
+batch_size = 37
 test_batch = batch_size
 train_loader = loaderGenerator.dataloader(train_set, batch_size=batch_size)
 test_loader = loaderGenerator.dataloader(test_set, batch_size=test_batch)
@@ -107,12 +107,12 @@ load_checkpoint(LOAD_PATH)
 # for param in params:
 #     param.requires_grad = False
 
-model.c4 = conv_bn_act(1024, len(labels), kernel_size=1).to(device)
-# torch.nn.init.xavier_uniform_(model.c4[0].weight, gain=nn.init.calculate_gain('relu'))
-for param in model.parameters():
-    param.requires_grad = True
-optimizer = torch.optim.SGD(model.parameters(), lr=0.005, momentum=0.9)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+# model.classify = nn.Conv1d(1024, len(labels), kernel_size=1, bias=True).to(device)
+# torch.nn.init.xavier_normal_(model.classify.weight, gain=nn.init.calculate_gain('relu'))
+# for param in model.parameters():
+#     param.requires_grad = True
+optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=8, gamma=0.2)
 
 def test_decoder(epoch, k):
     model.eval()
@@ -171,7 +171,7 @@ save_log(f'e.txt', ['initial test loss:', test()])
 
 f_mask = torchaudio.transforms.FrequencyMasking(freq_mask_param=15)
 t_mask = torchaudio.transforms.TimeMasking(time_mask_param=35)
-
+# torch.autograd.set_detect_anomaly(True)
 def train(epoch=1):
     train_loss_q = []
     test_loss_q = []
@@ -185,8 +185,8 @@ def train(epoch=1):
             wave_len = sample_batched['audio_len']
             target = sample_batched['target']
             target_len = sample_batched['target_len']
-            waveform = t_mask(waveform)
-            waveform = f_mask(waveform)
+            # waveform = t_mask(waveform)
+            # waveform = f_mask(waveform)
             waveform = safe_log(waveform)
             # Step 2. Run our forward pass
             emissions, emission_len = model(waveform, wave_len)
