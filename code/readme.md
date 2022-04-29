@@ -5,6 +5,7 @@
 - Free ST Chinese Mandarin Corpus ST-CMDS https://us.openslr.org/resources/38/
 - SLR33 AISHELL-1 http://www.openslr.org/33/
 - Aidatatang_200zh https://us.openslr.org/resources/62/
+- 说话人识别 http://www.openslr.org/82/
 
 ## TODO
 

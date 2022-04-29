@@ -12,6 +12,7 @@ import pandas as pd
 import torch
 import torchaudio
 from torch.utils.data import DataLoader, Dataset, random_split
+from torch.nn.utils.rnn import pad_sequence
 
 class SpeechDataset(Dataset):
     def __init__(self, data_path, sample_rate=16000, transform=None):
@@ -276,31 +277,33 @@ class LoaderGenerator:
                 del batch[i]
         return batch
 
-    def collate_wrapper(self, batch):
+    def collate_wrapper(self, batch:list):
         batch = self.batch_filter(batch)
-        bs = len(batch)
+        bs = len(batch) # after filter, the size may change
         # 1. shift each audio right with several blocks < first kernel in the model
         rand_shift = torch.randint(self.k_size, (bs,))
         n_mel = batch[0]['audio'].shape[-2]
         audio_list = [
             torch.cat(
-            (torch.zeros((1, n_mel, rand_shift[i])), batch[i]['audio']), -1)
+            (torch.zeros((1, n_mel, rand_shift[i])), batch[i]['audio']), -1).permute(0,2,1).squeeze()
             for i in range(bs)]
         # 2. get audio length and pad them to the same length
-        audio_length = torch.tensor([audio.shape[-1] for audio in audio_list])
+        audio_length = torch.tensor([audio.shape[-2] for audio in audio_list])
         max_audio_length = torch.max(audio_length)
-        audio_list = torch.cat([
-            torch.cat(
-            (audio, torch.zeros((1, n_mel, max_audio_length-audio.shape[-1]))), -1)
-            for audio in audio_list], 0)
+        # audio_list = torch.cat([
+        #     torch.cat(
+        #     (audio, torch.zeros((1, n_mel, max_audio_length-audio.shape[-1]))), -1)
+        #     for audio in audio_list], 0)
+        audio_list = pad_sequence(audio_list, batch_first=True, padding_value=0.0).permute(0,2,1)
         # 3. do the same padding process on text
-        target_list = [self.label2id(item['text']) for item in batch]
+        target_list = [torch.tensor(self.label2id(item['text'])) for item in batch]
         target_length = torch.tensor([len(l) for l in target_list])
-        max_target_length = torch.max(target_length)
-        target_list = torch.cat([
-            torch.cat(
-            (torch.tensor(l), torch.zeros([max_target_length-len(l)], dtype=torch.int)), -1).unsqueeze(0) 
-            for l in target_list], 0)
+        # max_target_length = torch.max(target_length)
+        # target_list = torch.cat([
+        #     torch.cat(
+        #     (torch.tensor(l), torch.zeros([max_target_length-len(l)], dtype=torch.int)), -1).unsqueeze(0) 
+        #     for l in target_list], 0)
+        target_list = pad_sequence(target_list, batch_first=True, padding_value=0)
         # 4. return data on device
         device = self.device
         return {'audio': audio_list.to(device), 'target': target_list.to(device), 'audio_len': audio_length.to(device), 'target_len': target_length.to(device)}
@@ -326,11 +329,11 @@ if __name__ == '__main__':
         return {'audio':safe_log(mel_transform(audio)),
                 'text': chinese2pinyin(text),
                 'chinese': text}
-    # dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
+    dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
     # dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
     # dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=audio_transform)
     # dataset = AiShellDataset('./data/data_aishell/', transform=audio_transform)
-    dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/', transform=audio_transform)
+    # dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/', transform=audio_transform)
     from pypinyin import lazy_pinyin
     from helper import get_labels
     labels = get_labels()
@@ -340,7 +343,8 @@ if __name__ == '__main__':
     print('train_set:', len(train_set), 'test_set:',len(test_set))
     steps = 10
     for i_batch, sample_batched in enumerate(train_loader):
-        print(sample_batched['audio'].shape, sample_batched['target'].shape)
+        print(sample_batched['audio'].shape, sample_batched['target'].shape, \
+            sample_batched['audio_len'], sample_batched['target_len'])
         if steps < 0:
             break
         steps -= 1

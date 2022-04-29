@@ -31,7 +31,9 @@ def get_labels():
             'q',
             'z')
             
-def chinese2pinyin(text):
+def chinese2pinyin(text, zero_pad=False):
         pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
         pinyin = [i for i in '|'.join(pinyin)]
-        return ['-', '-']+pinyin+['-', '-']
+        if zero_pad:
+            pinyin =['-', '-']+pinyin+['-', '-']
+        return pinyin
