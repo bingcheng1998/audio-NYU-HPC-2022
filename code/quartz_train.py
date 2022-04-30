@@ -30,8 +30,8 @@ def save_log(file_name, log, mode='a', path = './log/n9-'):
             f.write(' '.join(log))
             print(' '.join(log))
 
-# LOAD_PATH = './checkpoint/quartz/model-temp.pt'
-LOAD_PATH = './checkpoint/quartz/primewords-1.pt'
+LOAD_PATH = './checkpoint/quartz/model-temp.pt'
+# LOAD_PATH = './checkpoint/quartz/primewords-1.pt'
 # LOAD_PATH = './checkpoint/quartz/ST-CMDS-character-2.pt'
 # LOAD_PATH = './checkpoint/quartz/epoch_5_2_new_data_0.pt'
 N_MELS = 80

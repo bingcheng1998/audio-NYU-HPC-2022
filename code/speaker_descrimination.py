@@ -16,7 +16,7 @@ mel_transform = torchaudio.transforms.MelSpectrogram(
     n_mels=mel_n_channels)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def get_decoder():
+def get_encoder():
     model = SpeakerEncoder(40, 256, 256)
     def load_checkpoint(path):
         if exists(path):
@@ -48,18 +48,18 @@ def infer(model, wav):
     frames = mel_transform(wav)
     print(frames.shape)
     mel_slices = get_mel_slices(frames.shape[-1])
-    print(mel_slices)
+    # print(mel_slices)
     frames_batch = pad_sequence([frames[:, :, s].permute(0,2,1).squeeze() for s in mel_slices], batch_first=True, padding_value=0.0)
-    print(frames_batch.shape)
+    # print(frames_batch.shape)
     partial_embeds = model(frames_batch)
     raw_embed = torch.mean(partial_embeds, dim=0)
     embed = raw_embed / torch.norm(raw_embed, 2)
     return embed
 
 if __name__ == '__main__':
-    waveform, sample_rate = torchaudio.load('./audio-temp.wav')
+    waveform, sample_rate = torchaudio.load('./_assets/speech.wav')
     if sample_rate != sampling_rate:
         waveform = torchaudio.functional.resample(waveform, sample_rate, sampling_rate)
-    model = get_decoder()
-    emb = infer(model, waveform)
-    print(emb)
+    model = get_encoder()
+    emb = infer(model, waveform[:, :54000])
+    print(emb[:9])
