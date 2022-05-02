@@ -1,7 +1,5 @@
 conda_pkgs/
 .vscode/
-code/checkpoint/*.pt
-code/checkpoint/model_1_1.2229794263839722.pt
 code/data/zhspeechocean/1110/11101031.mp3
 code/data/
 *.tar
@@ -10,9 +8,7 @@ penv/
 *.out
 *.wav
 .cache/
-code/checkpoint/e*.txt
 *.pyc
-code/checkpoint/bac/
 code/log/
 code/__pycache__/
 code/_assets/
@@ -23,5 +19,4 @@ music/img.png
 .DS_Store
 music/checkpoint/
 music/log/
-code/checkpoint/quartz/
 code/checkpoint/
