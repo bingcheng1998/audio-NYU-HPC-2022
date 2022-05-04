@@ -302,7 +302,7 @@ class LoaderGenerator:
                 del batch[i]
         return batch
 
-    def collate_wrapper(self, batch):
+    def collate_wrapper(self, batch:list):
         batch = self.batch_filter(batch)
         bs = len(batch)
         rand_shift = torch.randint(self.k_size, (bs,))

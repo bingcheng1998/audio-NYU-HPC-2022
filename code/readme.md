@@ -6,6 +6,7 @@
 - SLR33 AISHELL-1 http://www.openslr.org/33/
 - Aidatatang_200zh https://us.openslr.org/resources/62/
 - 说话人识别 http://www.openslr.org/82/
+- 多说话人语音合成 http://www.openslr.org/93/
 
 ## TODO
 
@@ -19,6 +20,8 @@
 - [x] 基础模型
 - [x] 实验标准汉语拼音的训练
 - [x] 多数据集联合
+- [ ] datatang 和 dataaishell3的loader
+- [ ] tacotron2 训练+添加用户音色模块
 - [ ] 深入学习spleeter技术，掌握音频分离原理
 - [ ] 制作音乐数据集, 爬取同一首歌的多个演唱版本，然后制作数据集
 - [ ] 语音输入句子，自动识别单字，自动分割汉字，保存

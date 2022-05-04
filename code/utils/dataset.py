@@ -313,6 +313,56 @@ class LoaderGenerator:
         return DataLoader(audioDataset, batch_size,
                             shuffle, num_workers=0, collate_fn=self.collate_wrapper)
 
+class RAWLoaderGenerator:
+    def __init__(self, 
+        labels, k_size=0, 
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        ) -> None:
+        self.k_size = k_size
+        self.labels = labels
+        self.look_up = {s: i for i, s in enumerate(labels)}
+        self.device = device
+
+    def label2id(self, str):
+        return [self.look_up[i] for i in str]
+
+    def id2label(self, idcs):
+        return ''.join([self.labels[i] for i in idcs])
+
+    def batch_filter(self, batch:list):
+        # remove all audio with tag if audio length > threshold
+        for i in range(len(batch)-1, -1, -1):
+            if batch[i]['audio'].shape[-1] > self.threshold: # 256 is the hop_length of fft
+                del batch[i]
+        return batch
+
+    def collate_wrapper(self, batch:list): # RAW
+        batch = self.batch_filter(batch)
+        bs = len(batch)
+        rand_shift = torch.randint(self.k_size, (bs,))
+        audio_list = [batch[i]['audio'][:,rand_shift[i]:] for i in range(bs)]
+        audio_length = torch.tensor([audio.shape[-1] for audio in audio_list])
+        max_audio_length = torch.max(audio_length)
+        audio_list = torch.cat([
+            torch.cat(
+            (audio, torch.zeros(max_audio_length-audio.shape[-1]).unsqueeze(0)), -1)
+            for audio in audio_list], 0)
+        target_list = [self.label2id(item['text']) for item in batch]
+        target_length = torch.tensor([len(l) for l in target_list])
+        max_target_length = torch.max(target_length)
+        target_list = torch.cat([
+            torch.cat(
+            (torch.tensor(l), torch.zeros([max_target_length-len(l)], dtype=torch.int)), -1).unsqueeze(0) 
+            for l in target_list], 0)
+        device = self.device
+        return {'audio': audio_list.to(device), 'target': target_list.to(device), 'audio_len': audio_length.to(device), 'target_len': target_length.to(device)}
+
+    def dataloader(self, audioDataset, batch_size, shuffle=True):
+        # k_size is the kernel size for the encoder, for data augmentation
+        self.threshold = audioDataset.dataset.threshold
+        return DataLoader(audioDataset, batch_size,
+                            shuffle, num_workers=0, collate_fn=self.collate_wrapper)
+
 if __name__ == '__main__':
     def audio_transform(sample, sample_rate):
         audio = sample['audio']

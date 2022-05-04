@@ -20,3 +20,5 @@ music/img.png
 music/checkpoint/
 music/log/
 code/checkpoint/
+data/
+senv/
