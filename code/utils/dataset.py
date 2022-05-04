@@ -4,10 +4,10 @@
 # 3. AiShellDataset 优质的大型数据集 http://www.openslr.org/33/
 # 4. STCMDSDataset 优质的大型数据集 https://us.openslr.org/resources/38/
 # 5. CvCorpus8Dataset 很差劲的firefox数据集，不要用这个，质量过差
+# 6. AiShell3Dataset 优质的大型数据集 http://www.openslr.org/93/ 多说话人合成
 
 import json
 import os
-
 import pandas as pd
 import torch
 import torchaudio
@@ -271,8 +271,6 @@ class STCMDSDataset(SpeechDataset):
         
     def get_text(self, x): 
         return open(self.data_path+self.file_names[x]+'.txt', "r").read() if x < self.dataset_file_num else None
-       
-AudioDataset = STCMDSDataset
 
 class CvCorpus8Dataset(SpeechDataset):
 
@@ -317,7 +315,7 @@ class CvCorpus8Dataset(SpeechDataset):
     def get_text(self, x): 
         return self.sentence_text[x] if x < len(self) else None
 
-class LoaderGenerator:
+class MelLoaderGenerator:
     def __init__(self, 
         labels, k_size=0, 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -377,7 +375,7 @@ class LoaderGenerator:
         return DataLoader(audioDataset, batch_size,
                             shuffle, num_workers=0, collate_fn=self.collate_wrapper)
 
-class RAWLoaderGenerator:
+class RawLoaderGenerator:
     def __init__(self, 
         labels, k_size=0, 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -452,17 +450,17 @@ if __name__ == '__main__':
         return {'audio':audio,
                 'text': chinese2pinyin(text),
                 'chinese': text}
-    # dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
-    # dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
-    # dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=audio_transform)
-    # dataset = AiShellDataset('./data/data_aishell/', transform=audio_transform)
-    # dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/', transform=audio_transform)
+    # dataset = SpeechOceanDataset('/scratch/bh2283/data/zhspeechocean/', transform=audio_transform)
+    # dataset = STCMDSDataset('/scratch/bh2283/data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
+    # dataset = CvCorpus8Dataset('/scratch/bh2283/data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=audio_transform)
+    # dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=audio_transform)
+    # dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=audio_transform)
     dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_mel_audio_transform)
     from pypinyin import lazy_pinyin
     from helper import get_labels
     labels = get_labels()
     # loaderGenerator = LoaderGenerator(get_labels(), k_size=33)
-    loaderGenerator = RAWLoaderGenerator(get_labels(), k_size=5)
+    loaderGenerator = RawLoaderGenerator(get_labels(), k_size=5)
     train_set, test_set = dataset.split()
     train_loader = loaderGenerator.dataloader(train_set, batch_size=8)
     print('train_set:', len(train_set), 'test_set:',len(test_set))
