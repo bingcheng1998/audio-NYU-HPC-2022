@@ -170,6 +170,70 @@ class AiShellDataset(SpeechDataset):
         split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
         return split_dataset
 
+class AiShell3Dataset(SpeechDataset):
+
+    def __init__(self, data_path, sample_rate=16000, transform=None):
+        super().__init__(data_path, sample_rate, transform)
+        transcript_file = data_path+'content.txt'
+        self.transcript = self.gen_transcript(transcript_file)
+        self.wav_files = self.get_all_wav_files(data_path, self.transcript)
+        self.dataset_file_num = len(self.wav_files)
+        self.threshold = 120000 # to avoid GPU memory used out
+        self.batch_size = 80 # to avoid GPU memory used out
+        self.split_ratio = [1000, 5]
+
+    def __len__(self):
+        return self.dataset_file_num
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        if idx >= self.dataset_file_num:
+            return {'audio': None, 'text': None}
+        audio_name = self.wav_files[idx]
+        waveform, sample_rate = torchaudio.load(audio_name)
+        if sample_rate != self.sample_rate:
+            waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
+        dict_id = audio_name.rsplit('/',1)[-1].split('.')[0]
+        audio_content = self.transcript[dict_id]
+        sample = {'audio': waveform, 'text': audio_content}
+        if self.transform:
+            sample = self.transform(sample, self.sample_rate)
+        return sample
+
+    def parse_line(self, line):
+        id, text = line.split('\t', 1)
+        id = id.split('.')[0]
+        # text = ''.join(text.split(' '))
+        return id, text
+
+    def gen_transcript(self, transcript_file):
+        transcript = {}
+        with open(transcript_file, 'r') as f:
+            content = f.read()
+            lines = content.split('\n')[:-1]
+            for line in lines:
+                id, text = self.parse_line(line)
+                transcript[id] = text
+        return transcript
+
+    def get_all_wav_files(self, path, transcript):
+        people_folder = path+'wav/'
+        wav_folders = [people_folder+i for i in os.listdir(people_folder)]
+        files = []
+        for wav_folder in wav_folders:
+            files += [wav_folder+'/'+i for i in os.listdir(wav_folder) if i[:-4] in transcript]
+        return files
+    
+    def split(self, split_ratio=None, seed=42):
+        audio_dataset = self
+        size = len(audio_dataset)
+        my_split_ratio = self.split_ratio if split_ratio is None else split_ratio
+        lengths = [(i*size)//sum(my_split_ratio) for i in my_split_ratio]
+        lengths[-1] = size - sum(lengths[:-1])
+        split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
+        return split_dataset
+
 class STCMDSDataset(SpeechDataset):
 
     def __init__(self, data_path, sample_rate=16000, transform=None):
@@ -364,7 +428,7 @@ class RAWLoaderGenerator:
                             shuffle, num_workers=0, collate_fn=self.collate_wrapper)
 
 if __name__ == '__main__':
-    def audio_transform(sample, sample_rate):
+    def mel_audio_transform(sample, sample_rate):
         audio = sample['audio']
         text = sample['text']
         mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,\
@@ -378,15 +442,27 @@ if __name__ == '__main__':
         return {'audio':safe_log(mel_transform(audio)),
                 'text': chinese2pinyin(text),
                 'chinese': text}
+    def raw_mel_audio_transform(sample, sample_rate=None):
+        audio = sample['audio']
+        text = sample['text']
+        def chinese2pinyin(text):
+            pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
+            pinyin = [i for i in '|'.join(pinyin)]
+            return pinyin
+        return {'audio':audio,
+                'text': chinese2pinyin(text),
+                'chinese': text}
     # dataset = SpeechOceanDataset('./data/zhspeechocean/', transform=audio_transform)
     # dataset = STCMDSDataset('./data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
     # dataset = CvCorpus8Dataset('./data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=audio_transform)
     # dataset = AiShellDataset('./data/data_aishell/', transform=audio_transform)
-    dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/', transform=audio_transform)
+    # dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/', transform=audio_transform)
+    dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_mel_audio_transform)
     from pypinyin import lazy_pinyin
     from helper import get_labels
     labels = get_labels()
-    loaderGenerator = LoaderGenerator(get_labels(), k_size=33)
+    # loaderGenerator = LoaderGenerator(get_labels(), k_size=33)
+    loaderGenerator = RAWLoaderGenerator(get_labels(), k_size=5)
     train_set, test_set = dataset.split()
     train_loader = loaderGenerator.dataloader(train_set, batch_size=8)
     print('train_set:', len(train_set), 'test_set:',len(test_set))
