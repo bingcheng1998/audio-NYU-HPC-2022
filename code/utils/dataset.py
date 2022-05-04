@@ -8,11 +8,15 @@
 
 import json
 import os
+from os.path import exists
 import pandas as pd
 import torch
 import torchaudio
+import pickle
 from torch.utils.data import DataLoader, Dataset, random_split
 from torch.nn.utils.rnn import pad_sequence
+
+cache_path = '/scratch/bh2283/.cache/'
 
 class SpeechDataset(Dataset):
     def __init__(self, data_path, sample_rate=16000, transform=None):
@@ -139,6 +143,10 @@ class AiShellDataset(SpeechDataset):
         return id, text
 
     def gen_transcript(self, transcript_file):
+        pk = cache_path+'dataset_temp/aishell_transcript.pickle'
+        if exists(pk):
+            with open(pk,"rb") as f:
+                return pickle.load(f)
         transcript = {}
         with open(transcript_file, 'r') as f:
             content = f.read()
@@ -146,9 +154,15 @@ class AiShellDataset(SpeechDataset):
             for line in lines:
                 id, text = self.parse_line(line)
                 transcript[id] = text
+        with open(pk,"wb") as f:
+            pickle.dump(transcript, f)
         return transcript
 
     def get_all_wav_files(self, path, transcript):
+        pk = cache_path+'dataset_temp/aishell_all_wav_files.pickle'
+        if exists(pk):
+            with open(pk,"rb") as f:
+                return pickle.load(f)
         folders = []
         train = os.listdir(path+'wav/train/')
         folders += [path+'wav/train/'+i for i in train]
@@ -159,6 +173,8 @@ class AiShellDataset(SpeechDataset):
         files = []
         for folder in folders:
             files += [folder+'/'+i for i in os.listdir(folder) if i[:-4] in transcript]
+        with open(pk,"wb") as f:
+            pickle.dump(files, f)
         return files
     
     def split(self, split_ratio=None, seed=42):
@@ -208,6 +224,10 @@ class AiShell3Dataset(SpeechDataset):
         return id, text
 
     def gen_transcript(self, transcript_file):
+        pk = cache_path+'dataset_temp/aishell3transcript.pickle'
+        if exists(pk):
+            with open(pk,"rb") as f:
+                return pickle.load(f)
         transcript = {}
         with open(transcript_file, 'r') as f:
             content = f.read()
@@ -215,14 +235,22 @@ class AiShell3Dataset(SpeechDataset):
             for line in lines:
                 id, text = self.parse_line(line)
                 transcript[id] = text
+        with open(pk,"wb") as f:
+            pickle.dump(transcript, f)
         return transcript
 
     def get_all_wav_files(self, path, transcript):
+        pk = cache_path+'dataset_temp/aishell3_all_wav_files.pickle'
+        if exists(pk):
+            with open(pk,"rb") as f:
+                return pickle.load(f)
         people_folder = path+'wav/'
         wav_folders = [people_folder+i for i in os.listdir(people_folder)]
         files = []
         for wav_folder in wav_folders:
             files += [wav_folder+'/'+i for i in os.listdir(wav_folder) if i[:-4] in transcript]
+        with open(pk,"wb") as f:
+            pickle.dump(files, f)
         return files
     
     def split(self, split_ratio=None, seed=42):
@@ -440,7 +468,7 @@ if __name__ == '__main__':
         return {'audio':safe_log(mel_transform(audio)),
                 'text': chinese2pinyin(text),
                 'chinese': text}
-    def raw_mel_audio_transform(sample, sample_rate=None):
+    def raw_audio_transform(sample, sample_rate=None):
         audio = sample['audio']
         text = sample['text']
         def chinese2pinyin(text):
@@ -450,16 +478,16 @@ if __name__ == '__main__':
         return {'audio':audio,
                 'text': chinese2pinyin(text),
                 'chinese': text}
-    # dataset = SpeechOceanDataset('/scratch/bh2283/data/zhspeechocean/', transform=audio_transform)
-    # dataset = STCMDSDataset('/scratch/bh2283/data/ST-CMDS-20170001_1-OS/', transform=audio_transform)
-    # dataset = CvCorpus8Dataset('/scratch/bh2283/data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=audio_transform)
-    # dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=audio_transform)
-    # dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=audio_transform)
-    dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_mel_audio_transform)
+    # dataset = SpeechOceanDataset('/scratch/bh2283/data/zhspeechocean/', transform=raw_audio_transform)
+    # dataset = STCMDSDataset('/scratch/bh2283/data/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform)
+    # dataset = CvCorpus8Dataset('/scratch/bh2283/data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=raw_audio_transform)
+    # dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
+    # dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
+    dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform)
     from pypinyin import lazy_pinyin
     from helper import get_labels
     labels = get_labels()
-    # loaderGenerator = LoaderGenerator(get_labels(), k_size=33)
+    # loaderGenerator = MelLoaderGenerator(get_labels(), k_size=33)
     loaderGenerator = RawLoaderGenerator(get_labels(), k_size=5)
     train_set, test_set = dataset.split()
     train_loader = loaderGenerator.dataloader(train_set, batch_size=8)
