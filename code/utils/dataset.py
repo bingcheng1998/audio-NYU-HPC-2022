@@ -262,6 +262,74 @@ class AiShell3Dataset(SpeechDataset):
         split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
         return split_dataset
 
+class AiShell3PersonDataset(SpeechDataset):
+
+    def __init__(self, data_path, person_id, sample_rate=16000, transform=None):
+        super().__init__(data_path, sample_rate, transform)
+        transcript_file = data_path+'content.txt'
+        self.transcript = self.gen_transcript(transcript_file)
+        self.wav_files = self.get_all_wav_files(data_path, self.transcript, person_id)
+        self.dataset_file_num = len(self.wav_files)
+        self.person_id = person_id
+        self.threshold = 120000 # to avoid GPU memory used out
+        self.batch_size = 80 # to avoid GPU memory used out
+        self.split_ratio = [1000, 0]
+
+    def __len__(self):
+        return self.dataset_file_num
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        if idx >= self.dataset_file_num:
+            return {'audio': None, 'text': None}
+        audio_name = self.wav_files[idx]
+        waveform, sample_rate = torchaudio.load(audio_name)
+        if sample_rate != self.sample_rate:
+            waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
+        dict_id = audio_name.rsplit('/',1)[-1].split('.')[0]
+        audio_content = self.transcript[dict_id]
+        sample = {'audio': waveform, 'text': audio_content}
+        if self.transform:
+            sample = self.transform(sample, self.sample_rate)
+        return sample
+
+    def parse_line(self, line):
+        id, text = line.split('\t', 1)
+        id = id.split('.')[0]
+        # text = ''.join(text.split(' '))
+        return id, text
+
+    def gen_transcript(self, transcript_file):
+        pk = cache_path+'dataset_temp/aishell3transcript.pickle'
+        if exists(pk):
+            with open(pk,"rb") as f:
+                return pickle.load(f)
+        transcript = {}
+        with open(transcript_file, 'r') as f:
+            content = f.read()
+            lines = content.split('\n')[:-1]
+            for line in lines:
+                id, text = self.parse_line(line)
+                transcript[id] = text
+        with open(pk,"wb") as f:
+            pickle.dump(transcript, f)
+        return transcript
+
+    def get_all_wav_files(self, path, transcript, person_id):
+        wav_folder = path+f'wav/{person_id}/'
+        files = [wav_folder+'/'+i for i in os.listdir(wav_folder) if i[:-4] in transcript]
+        return files
+    
+    def split(self, split_ratio=None, seed=42):
+        audio_dataset = self
+        size = len(audio_dataset)
+        my_split_ratio = self.split_ratio if split_ratio is None else split_ratio
+        lengths = [(i*size)//sum(my_split_ratio) for i in my_split_ratio]
+        lengths[-1] = size - sum(lengths[:-1])
+        split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
+        return split_dataset
+
 class STCMDSDataset(SpeechDataset):
 
     def __init__(self, data_path, sample_rate=16000, transform=None):
@@ -412,6 +480,7 @@ class RawLoaderGenerator:
         self.labels = labels
         self.look_up = {s: i for i, s in enumerate(labels)}
         self.device = device
+        self.version = '0.02'
 
     def label2id(self, str):
         return [self.look_up[i] for i in str]
@@ -431,14 +500,20 @@ class RawLoaderGenerator:
         bs = len(batch)
         rand_shift = torch.randint(self.k_size, (bs,))
         audio_list = [batch[i]['audio'][:,rand_shift[i]:] for i in range(bs)]
-        audio_length = torch.tensor([audio.shape[-1] for audio in audio_list])
+        audio_length = [audio.shape[-1] for audio in audio_list]
+        target_list = [self.label2id(item['text']) for item in batch]
+        target_length = [len(l) for l in target_list]
+
+        target_length, target_list, audio_length, audio_list = zip(*sorted(zip(target_length, target_list, audio_length, audio_list), reverse=True))
+        target_length = torch.tensor(target_length)
+        audio_length = torch.tensor(audio_length)
+
         max_audio_length = torch.max(audio_length)
         audio_list = torch.cat([
             torch.cat(
             (audio, torch.zeros(max_audio_length-audio.shape[-1]).unsqueeze(0)), -1)
             for audio in audio_list], 0)
-        target_list = [self.label2id(item['text']) for item in batch]
-        target_length = torch.tensor([len(l) for l in target_list])
+        
         max_target_length = torch.max(target_length)
         target_list = torch.cat([
             torch.cat(
@@ -483,7 +558,8 @@ if __name__ == '__main__':
     # dataset = CvCorpus8Dataset('/scratch/bh2283/data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=raw_audio_transform)
     # dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
     # dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
-    dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform)
+    # dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform)
+    dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, person_id='SSB0011')
     from pypinyin import lazy_pinyin
     from helper import get_labels
     labels = get_labels()
@@ -494,8 +570,7 @@ if __name__ == '__main__':
     print('train_set:', len(train_set), 'test_set:',len(test_set))
     steps = 10
     for i_batch, sample_batched in enumerate(train_loader):
-        print(sample_batched['audio'].shape, sample_batched['target'].shape, \
-            sample_batched['audio_len'], sample_batched['target_len'])
-        if steps < 0:
+        if steps <= 0:
             break
+        print(sample_batched['audio'].shape, sample_batched['target'].shape)
         steps -= 1
