@@ -16,17 +16,22 @@ class SpeakerEncoder(nn.Module):
         self.similarity_weight = nn.Parameter(torch.tensor([10.])) # ignore
         self.similarity_bias = nn.Parameter(torch.tensor([-5.])) # ignore
 
-    def forward(self, utterances, hidden_init=None):
-        # spec [bs x n_mel x l]
+    def forward(self, utterances, lens, hidden_init=None):
+        # utterances [bs, L, mel_in]
         out, (hidden, cell) = self.lstm(utterances, hidden_init)
-        # We take only the hidden state of the last layer
-        embeds_raw = self.relu(self.linear(hidden[-1]))
-        # L2-normalize it
+        # print('hidden', hidden.shape)
+        # print('out', out.shape) # [bs, L, hidden_dim]
+        # We take only the hidden state of the lens-1 layer
+        index_out = [out[i][lens[i]-1].unsqueeze(0) for i in range(out.shape[0])]
+        embeds_raw = torch.concat(index_out, dim=0)
+        # print('embeds_raw', embeds_raw.shape)
+        # L2-normalize it 
         embeds = embeds_raw / (torch.norm(embeds_raw, dim=1, keepdim=True) + 1e-5)        
         return embeds
 
 if __name__ == '__main__':
-    model = SpeakerEncoder(40, 256, 256)
-    spec = torch.randn(5, 99, 40) # bs, L, in
-    out = model(spec) # bs, L, out
+    model = SpeakerEncoder(4, 8, 6)
+    spec = torch.randn(5, 11, 4) # bs, L, mel_in
+    lens=torch.tensor([1,2,3,4,5])
+    out = model(spec, lens) # bs, out_dim
     print(out.shape)

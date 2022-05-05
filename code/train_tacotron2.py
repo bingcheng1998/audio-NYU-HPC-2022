@@ -29,7 +29,7 @@ save_log(f'e.txt', ['HPC Node:', os.uname()[1]])
 
 bundle = torchaudio.pipelines.TACOTRON2_WAVERNN_CHAR_LJSPEECH
 processor = bundle.get_text_processor()
-tacotron2 = bundle.get_tacotron2().to(device)
+# tacotron2 = bundle.get_tacotron2().to(device)
 
 from torchaudio.pipelines._tts.utils import _get_chars
 
@@ -61,11 +61,13 @@ mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,\
                 f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney").to(device)
 safe_log = lambda x: torch.log(x+2**(-15))
 
-my_tacotron2 = bundle.get_tacotron2()
-new_embedding = torch.nn.Embedding(len(labels), tacotron2.embedding.embedding_dim)
-new_embedding.weight[:tacotron2.embedding.num_embeddings, :].data=tacotron2.embedding.weight.data
-my_tacotron2.embedding=new_embedding
-model = my_tacotron2.to(device)
+# my_tacotron2 = bundle.get_tacotron2()
+# new_embedding = torch.nn.Embedding(len(labels), tacotron2.embedding.embedding_dim)
+# new_embedding.weight[:tacotron2.embedding.num_embeddings, :].data=tacotron2.embedding.weight.data
+# my_tacotron2.embedding=new_embedding
+from model.MyTacotron2 import MyTacotron2
+model = MyTacotron2(labels).to(device)
+# model = my_tacotron2.to(device)
 
 params = model.parameters()
 # optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
@@ -73,6 +75,7 @@ optimizer = torch.optim.Adam(params, lr=0.001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 initial_epoch = 0
 mse_loss = torch.nn.MSELoss()
+bce_loss = torch.nn.BCELoss()
 mean = lambda x: sum(x)/len(x)
 
 def dump_model(EPOCH, LOSS, PATH):
@@ -109,14 +112,17 @@ def train(epoch=1):
             mels_list = [safe_log(mel_transform(audio[i][:audio_len[i]])).transpose(0,1) for i in range(len(audio_len))]
             mel_length = torch.tensor([mel.shape[-2] for mel in mels_list]).to(device)
             mels_tensor = pad_sequence(mels_list, batch_first=True, padding_value=torch.log(torch.tensor(2**(-15)))).permute(0,2,1)
-            org_mel, pos_mel, stop_token, _ = my_tacotron2.forward(tokens, tokens_len, mels_tensor, mel_length)
+
+            speaker_emb = model.speaker_encoder(mels_tensor.transpose(1,2), mel_length)
+
+            org_mel, pos_mel, stop_token, _ = model.forward(tokens, tokens_len, mels_tensor, mel_length, speaker_emb)
             loss = mse_loss(mels_tensor, org_mel)
             loss += mse_loss(mels_tensor, pos_mel)
 
             true_stop_token = torch.zeros(stop_token.shape).to(device)
             for i in range(true_stop_token.shape[0]):
                 true_stop_token[i][mel_length[i]:]+=1.0
-            loss += mse_loss(true_stop_token, torch.sigmoid(stop_token))
+            loss += bce_loss(torch.sigmoid(stop_token), true_stop_token)
             
             # Step 3. Run our backward pass
             optimizer.zero_grad()
