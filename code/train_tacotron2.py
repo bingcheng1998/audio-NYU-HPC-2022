@@ -58,7 +58,7 @@ train_loader = loaderGenerator.dataloader(train_set, batch_size=batch_size)
 
 mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,\
             n_fft=1024,power=1,hop_length=256,win_length=1024, n_mels=80, \
-                f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney")
+                f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney").to(device)
 safe_log = lambda x: torch.log(x+2**(-15))
 
 my_tacotron2 = bundle.get_tacotron2()
@@ -68,7 +68,8 @@ my_tacotron2.embedding=new_embedding
 model = my_tacotron2.to(device)
 
 params = model.parameters()
-optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9)
+# optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
+optimizer = torch.optim.Adam(params, lr=0.001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 initial_epoch = 0
 mse_loss = torch.nn.MSELoss()
@@ -106,16 +107,16 @@ def train(epoch=1):
 
             # Step 2. Run our forward pass
             mels_list = [safe_log(mel_transform(audio[i][:audio_len[i]])).transpose(0,1) for i in range(len(audio_len))]
-            mel_length = torch.tensor([mel.shape[-2] for mel in mels_list])
+            mel_length = torch.tensor([mel.shape[-2] for mel in mels_list]).to(device)
             mels_tensor = pad_sequence(mels_list, batch_first=True, padding_value=torch.log(torch.tensor(2**(-15)))).permute(0,2,1)
-            org_mel, pos_mel, stop_token, attentions = my_tacotron2.forward(tokens, tokens_len, mels_tensor, mel_length)
+            org_mel, pos_mel, stop_token, _ = my_tacotron2.forward(tokens, tokens_len, mels_tensor, mel_length)
             loss = mse_loss(mels_tensor, org_mel)
             loss += mse_loss(mels_tensor, pos_mel)
 
             true_stop_token = torch.zeros(stop_token.shape).to(device)
             for i in range(true_stop_token.shape[0]):
                 true_stop_token[i][mel_length[i]:]+=1.0
-            loss += mse_loss(true_stop_token, stop_token)
+            loss += mse_loss(true_stop_token, torch.sigmoid(stop_token))
             
             # Step 3. Run our backward pass
             optimizer.zero_grad()
@@ -128,7 +129,7 @@ def train(epoch=1):
             
             batch_train_loss.append(loss.item())
 
-            if i_batch % (500 // batch_size) == 0: # log about each 1000 data
+            if i_batch % (50 // batch_size) == 0: # log about each 1000 data
                 # test_loss = test()
                 test_loss = 0
                 train_loss = mean(batch_train_loss)
@@ -140,9 +141,9 @@ def train(epoch=1):
                 save_temp(epoch, test_loss) # save temp checkpoint
                 # test_decoder(epoch, 5)
             
-        scheduler.step()
-        save_checkpoint(epoch, mean(test_loss_q))
+        # scheduler.step()
+        # save_checkpoint(epoch, mean(test_loss_q))
         save_log(f'e{epoch}.txt', ['============= Final Test ============='])
         # test_decoder(epoch, 10) # run some sample prediction and see the result
 
-train(1)
+train(30)
