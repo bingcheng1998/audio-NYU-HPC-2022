@@ -65,7 +65,7 @@ my_tacotron2 = bundle.get_tacotron2()
 new_embedding = torch.nn.Embedding(len(labels), tacotron2.embedding.embedding_dim)
 new_embedding.weight[:tacotron2.embedding.num_embeddings, :].data=tacotron2.embedding.weight.data
 my_tacotron2.embedding=new_embedding
-model = my_tacotron2
+model = my_tacotron2.to(device)
 
 params = model.parameters()
 optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9)
@@ -112,7 +112,7 @@ def train(epoch=1):
             loss = mse_loss(mels_tensor, org_mel)
             loss += mse_loss(mels_tensor, pos_mel)
 
-            true_stop_token = torch.zeros(stop_token.shape)
+            true_stop_token = torch.zeros(stop_token.shape).to(device)
             for i in range(true_stop_token.shape[0]):
                 true_stop_token[i][mel_length[i]:]+=1.0
             loss += mse_loss(true_stop_token, stop_token)
