@@ -5,10 +5,10 @@ import torchaudio
 from pypinyin import lazy_pinyin
 from torch.nn.utils.rnn import pad_sequence
 
-from utils.dataset import AiShell3PersonDataset, RawLoaderGenerator, AiShell3Dataset
+from utils.dataset import AiShell3PersonDataset, RawLoaderGenerator, AiShell3Dataset, MelLoaderGenerator
 
 
-def save_log(file_name, log, mode='a', path = './log/n2-'):
+def save_log(file_name, log, mode='a', path = './log/n3-'):
     with open(path+file_name, mode) as f:
         if mode == 'a':
             f.write('\n')
@@ -52,8 +52,9 @@ sample_rate = 16000
 #         person_id='SSB0011', sample_rate=sample_rate)
 dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, sample_rate=sample_rate)
 
-loaderGenerator = RawLoaderGenerator(labels, k_size=5)
-batch_size = 16
+# loaderGenerator = RawLoaderGenerator(labels, k_size=5, num_workers=1)
+loaderGenerator = MelLoaderGenerator(labels, k_size=5, num_workers=1, sample_rate=sample_rate)
+batch_size = 128
 train_set, test_set = dataset.split([1,0])
 train_loader = loaderGenerator.dataloader(train_set, batch_size=batch_size)
 
@@ -104,15 +105,17 @@ def train(epoch=1):
         for i_batch, sample_batched in enumerate(train_loader):
             model.train()
             # Step 1. Prepare Data
-            audio = sample_batched['audio']
-            tokens = sample_batched['target']
-            audio_len = sample_batched['audio_len']
-            tokens_len = sample_batched['target_len']
+            # audio = sample_batched['audio'].to(device)
+            # audio_len = sample_batched['audio_len']
+            tokens = sample_batched['target'].to(device)
+            tokens_len = sample_batched['target_len'].to(device)
+            mels_tensor = sample_batched['mel'].to(device) # [bs, mel_bins, L]
+            mel_length = sample_batched['mel_len'].to(device)
 
             # Step 2. Run our forward pass
-            mels_list = [safe_log(mel_transform(audio[i][:audio_len[i]])).transpose(0,1) for i in range(len(audio_len))]
-            mel_length = torch.tensor([mel.shape[-2] for mel in mels_list]).to(device)
-            mels_tensor = pad_sequence(mels_list, batch_first=True, padding_value=torch.log(torch.tensor(2**(-15)))).permute(0,2,1)
+            # mels_list = [safe_log(mel_transform(audio[i][:audio_len[i]])).transpose(0,1) for i in range(len(audio_len))]
+            # mel_length = torch.tensor([mel.shape[-2] for mel in mels_list]).to(device)
+            # mels_tensor = pad_sequence(mels_list, batch_first=True, padding_value=torch.log(torch.tensor(2**(-15)))).permute(0,2,1)
 
             speaker_emb = model.speaker_encoder(mels_tensor.transpose(1,2), mel_length)
 

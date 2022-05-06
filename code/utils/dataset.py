@@ -414,12 +414,16 @@ class CvCorpus8Dataset(SpeechDataset):
 class MelLoaderGenerator:
     def __init__(self, 
         labels, k_size=0, 
+        num_workers = 0,
+        sample_rate = 16000,
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         ) -> None:
         self.k_size = k_size
         self.labels = labels
         self.look_up = {s: i for i, s in enumerate(labels)}
         self.device = device
+        self.num_workers = num_workers
+        self.sample_rate = sample_rate
 
     def label2id(self, str):
         return [self.look_up[i] for i in str]
@@ -430,56 +434,73 @@ class MelLoaderGenerator:
     def batch_filter(self, batch:list):
         # remove all audio with tag if audio length > threshold
         for i in range(len(batch)-1, -1, -1):
-            if batch[i]['audio'].shape[-1] > self.threshold/256: # 256 is the hop_length of fft
+            if batch[i]['audio'].shape[-1] > self.threshold:
                 del batch[i]
         return batch
 
-    def collate_wrapper(self, batch:list):
+    def collate_wrapper(self, batch:list): # RAW
         batch = self.batch_filter(batch)
-        bs = len(batch) # after filter, the size may change
-        # 1. shift each audio right with several blocks < first kernel in the model
+        bs = len(batch)
         rand_shift = torch.randint(self.k_size, (bs,))
-        n_mel = batch[0]['audio'].shape[-2]
-        audio_list = [
-            torch.cat(
-            (torch.zeros((1, n_mel, rand_shift[i])), batch[i]['audio']), -1).permute(0,2,1).squeeze()
-            for i in range(bs)]
-        # 2. get audio length and pad them to the same length
-        audio_length = torch.tensor([audio.shape[-2] for audio in audio_list])
-        max_audio_length = torch.max(audio_length)
+        audio_list = [batch[i]['audio'][:,rand_shift[i]:] for i in range(bs)]
+        audio_length = [audio.shape[-1] for audio in audio_list]
+        target_list = [self.label2id(item['text']) for item in batch]
+        target_length = [len(l) for l in target_list]
+
+        target_length, target_list, audio_length, audio_list = zip(*sorted(zip(target_length, target_list, audio_length, audio_list), reverse=True))
+        target_length = torch.tensor(target_length)
+        audio_length = torch.tensor(audio_length)
+
+        mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=self.sample_rate,\
+            n_fft=1024,power=1,hop_length=256,win_length=1024, n_mels=80, \
+                f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney")
+        safe_log = lambda x: torch.log(x+2**(-15))
+
+        # for audio in audio_list:
+            # print(audio.shape)
+
+        mels_list = [safe_log(mel_transform(audio_list[i]).squeeze()).transpose(0,1) for i in range(len(audio_list))]
+        # for mel in mels_list:
+        #     print(mel.shape)
+        mel_length = torch.tensor([mel.shape[-1] for mel in mels_list])
+        mels_tensor = pad_sequence(mels_list, batch_first=True, padding_value=torch.log(torch.tensor(2**(-15)))).permute(0,2,1)
+        # print(mels_tensor.shape) # [bs, mel_bins, L]
+
+        # max_audio_length = torch.max(audio_length)
         # audio_list = torch.cat([
         #     torch.cat(
-        #     (audio, torch.zeros((1, n_mel, max_audio_length-audio.shape[-1]))), -1)
+        #     (audio, torch.zeros(max_audio_length-audio.shape[-1]).unsqueeze(0)), -1)
         #     for audio in audio_list], 0)
-        audio_list = pad_sequence(audio_list, batch_first=True, padding_value=0.0).permute(0,2,1)
-        # 3. do the same padding process on text
-        target_list = [torch.tensor(self.label2id(item['text'])) for item in batch]
-        target_length = torch.tensor([len(l) for l in target_list])
-        # max_target_length = torch.max(target_length)
-        # target_list = torch.cat([
-        #     torch.cat(
-        #     (torch.tensor(l), torch.zeros([max_target_length-len(l)], dtype=torch.int)), -1).unsqueeze(0) 
-        #     for l in target_list], 0)
-        target_list = pad_sequence(target_list, batch_first=True, padding_value=0)
-        # 4. return data on device
-        device = self.device
-        return {'audio': audio_list.to(device), 'target': target_list.to(device), 'audio_len': audio_length.to(device), 'target_len': target_length.to(device)}
+        
+        max_target_length = torch.max(target_length)
+        target_list = torch.cat([
+            torch.cat(
+            (torch.tensor(l), torch.zeros([max_target_length-len(l)], dtype=torch.int)), -1).unsqueeze(0) 
+            for l in target_list], 0)
+        # device = self.device
+        return {
+                # 'audio': audio_list, 'audio_len': audio_length, 
+                'target': target_list, 'target_len': target_length,
+                'mel': mels_tensor, 'mel_len': mel_length,
+                }
 
     def dataloader(self, audioDataset, batch_size, shuffle=True):
         # k_size is the kernel size for the encoder, for data augmentation
         self.threshold = audioDataset.dataset.threshold
         return DataLoader(audioDataset, batch_size,
-                            shuffle, num_workers=0, collate_fn=self.collate_wrapper)
+                            shuffle, num_workers=self.num_workers, collate_fn=self.collate_wrapper)
 
 class RawLoaderGenerator:
     def __init__(self, 
         labels, k_size=0, 
+        num_workers=0,
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         ) -> None:
         self.k_size = k_size
         self.labels = labels
         self.look_up = {s: i for i, s in enumerate(labels)}
         self.device = device
+        self.num_workers = num_workers
         self.version = '0.02'
 
     def label2id(self, str):
@@ -520,29 +541,29 @@ class RawLoaderGenerator:
             (torch.tensor(l), torch.zeros([max_target_length-len(l)], dtype=torch.int)), -1).unsqueeze(0) 
             for l in target_list], 0)
         device = self.device
-        return {'audio': audio_list.to(device), 'target': target_list.to(device), 'audio_len': audio_length.to(device), 'target_len': target_length.to(device)}
+        return {'audio': audio_list, 'target': target_list, 'audio_len': audio_length, 'target_len': target_length}
 
     def dataloader(self, audioDataset, batch_size, shuffle=True):
         # k_size is the kernel size for the encoder, for data augmentation
         self.threshold = audioDataset.dataset.threshold
         return DataLoader(audioDataset, batch_size,
-                            shuffle, num_workers=0, collate_fn=self.collate_wrapper)
+                            shuffle, num_workers=self.num_workers, collate_fn=self.collate_wrapper)
 
 if __name__ == '__main__':
-    def mel_audio_transform(sample, sample_rate):
-        audio = sample['audio']
-        text = sample['text']
-        mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,\
-            n_fft=1024,power=1,hop_length=256,win_length=1024, n_mels=80, \
-                f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney")
-        def chinese2pinyin(text):
-            pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
-            pinyin = [i for i in '|'.join(pinyin)]
-            return pinyin
-        safe_log = lambda x: torch.log(x+2**(-15))
-        return {'audio':safe_log(mel_transform(audio)),
-                'text': chinese2pinyin(text),
-                'chinese': text}
+    # def mel_audio_transform(sample, sample_rate):
+    #     audio = sample['audio']
+    #     text = sample['text']
+    #     mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,\
+    #         n_fft=1024,power=1,hop_length=256,win_length=1024, n_mels=80, \
+    #             f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney")
+    #     def chinese2pinyin(text):
+    #         pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
+    #         pinyin = [i for i in '|'.join(pinyin)]
+    #         return pinyin
+    #     safe_log = lambda x: torch.log(x+2**(-15))
+    #     return {'audio':safe_log(mel_transform(audio)),
+    #             'text': chinese2pinyin(text),
+    #             'chinese': text}
     def raw_audio_transform(sample, sample_rate=None):
         audio = sample['audio']
         text = sample['text']

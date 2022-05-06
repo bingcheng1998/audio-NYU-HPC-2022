@@ -16,7 +16,6 @@ class MyTacotron2(Tacotron2):
         _tacotron2_params['encoder_embedding_dim'] += speaker_emb_size
         super().__init__(**_tacotron2_params)
         self.speaker_encoder = SpeakerEncoder(_tacotron2_params['n_mels'], 256, speaker_emb_size)
-        # self.speaker_encoder = SpeakerEncoder(4,8,6)
         self.encoder = _Encoder(org_encoder_embedding_dim, _tacotron2_params['encoder_n_convolution'], _tacotron2_params['encoder_kernel_size'])
         self.speaker_emb_size = speaker_emb_size
     
@@ -65,7 +64,6 @@ class MyTacotron2(Tacotron2):
         # print('xx', encoder_outputs.shape, speaker_emb.shape)
         encoder_outputs = torch.concat([encoder_outputs, speaker_emb], -1) # (bs, L, speaker_emb_size+encoder_embedding_dim)
         
-        ## TODO: size not determinde 还需要仔细调节
         # end this part
 
         mel_specgram, gate_outputs, alignments = self.decoder(
