@@ -5,7 +5,7 @@ import torchaudio
 from pypinyin import lazy_pinyin
 from torch.nn.utils.rnn import pad_sequence
 
-from utils.dataset import AiShell3PersonDataset, RawLoaderGenerator
+from utils.dataset import AiShell3PersonDataset, RawLoaderGenerator, AiShell3Dataset
 
 
 def save_log(file_name, log, mode='a', path = './log/n1-'):
@@ -48,11 +48,12 @@ def raw_audio_transform(sample, sample_rate=None):
                 'text': pinyin,
                 'chinese': chinese}
 sample_rate = 16000               
-dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, \
-        person_id='SSB0011', sample_rate=sample_rate)
+# dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, \
+#         person_id='SSB0011', sample_rate=sample_rate)
+dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, sample_rate=sample_rate)
 
 loaderGenerator = RawLoaderGenerator(labels, k_size=5)
-batch_size = 8
+batch_size = 16
 train_set, test_set = dataset.split([1,0])
 train_loader = loaderGenerator.dataloader(train_set, batch_size=batch_size)
 
@@ -98,7 +99,6 @@ def train(epoch=1):
     train_loss_q = []
     test_loss_q = []
     for epoch in range(initial_epoch, epoch):
-        
         batch_train_loss = []
         for i_batch, sample_batched in enumerate(train_loader):
             model.train()
@@ -135,7 +135,7 @@ def train(epoch=1):
             
             batch_train_loss.append(loss.item())
 
-            if i_batch % (50 // batch_size) == 0: # log about each 1000 data
+            if i_batch % (500 // batch_size) == 0: # log about each 1000 data
                 # test_loss = test()
                 test_loss = 0
                 train_loss = mean(batch_train_loss)
@@ -148,7 +148,7 @@ def train(epoch=1):
                 # test_decoder(epoch, 5)
             
         # scheduler.step()
-        # save_checkpoint(epoch, mean(test_loss_q))
+        save_checkpoint(epoch, mean(test_loss_q))
         save_log(f'e{epoch}.txt', ['============= Final Test ============='])
         # test_decoder(epoch, 10) # run some sample prediction and see the result
 
