@@ -8,7 +8,7 @@ from torch.nn.utils.rnn import pad_sequence
 from utils.dataset import AiShell3PersonDataset, RawLoaderGenerator, AiShell3Dataset
 
 
-def save_log(file_name, log, mode='a', path = './log/n1-'):
+def save_log(file_name, log, mode='a', path = './log/n2-'):
     with open(path+file_name, mode) as f:
         if mode == 'a':
             f.write('\n')
@@ -33,7 +33,7 @@ processor = bundle.get_text_processor()
 
 from torchaudio.pipelines._tts.utils import _get_chars
 
-labels = _get_chars() + ('1', '2', '3', '4', '5')
+labels = _get_chars() + ('1', '2', '3', '4', '5') # 音调，5是轻声
 
 def raw_audio_transform(sample, sample_rate=None):
         audio = sample['audio']
@@ -42,7 +42,7 @@ def raw_audio_transform(sample, sample_rate=None):
         text = sample['text']
         text = text.split(' ')
         pinyin = [text[i] for i in range(len(text)) if i%2==1]
-        pinyin = labels[0].join(pinyin)
+        pinyin = ' '.join(pinyin) # 使用空格分离单字
         chinese = [text[i] for i in range(len(text)) if i%2==0]
         return {'audio':audio,
                 'text': pinyin,
@@ -77,6 +77,7 @@ scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 initial_epoch = 0
 mse_loss = torch.nn.MSELoss()
 bce_loss = torch.nn.BCELoss()
+cos_loss = torch.nn.CosineEmbeddingLoss()
 mean = lambda x: sum(x)/len(x)
 
 def dump_model(EPOCH, LOSS, PATH):
@@ -116,16 +117,20 @@ def train(epoch=1):
             speaker_emb = model.speaker_encoder(mels_tensor.transpose(1,2), mel_length)
 
             org_mel, pos_mel, stop_token, _ = model.forward(tokens, tokens_len, mels_tensor, mel_length, speaker_emb)
-            loss = mse_loss(mels_tensor, org_mel)
-            loss += mse_loss(mels_tensor, pos_mel)
+            loss1 = mse_loss(mels_tensor, org_mel)
+            loss1 += mse_loss(mels_tensor, pos_mel)
+
+            reconstruct_speaker_emb = model.speaker_encoder(pos_mel.transpose(1,2), mel_length)
+            loss2 = cos_loss(speaker_emb, reconstruct_speaker_emb, torch.ones_like(tokens_len))
 
             true_stop_token = torch.zeros(stop_token.shape).to(device)
             for i in range(true_stop_token.shape[0]):
                 true_stop_token[i][mel_length[i]:]+=1.0
-            loss += bce_loss(torch.sigmoid(stop_token), true_stop_token)
+            loss3 = bce_loss(torch.sigmoid(stop_token), true_stop_token)
             
             # Step 3. Run our backward pass
             optimizer.zero_grad()
+            loss = loss1 + loss2 + loss3
             loss.backward()
             optimizer.step()
 
