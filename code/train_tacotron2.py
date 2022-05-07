@@ -8,7 +8,7 @@ from torch.nn.utils.rnn import pad_sequence
 from utils.dataset import AiShell3PersonDataset, RawLoaderGenerator, AiShell3Dataset, MelLoaderGenerator
 
 
-def save_log(file_name, log, mode='a', path = './log/n1-'):
+def save_log(file_name, log, mode='a', path = './log/n4-'):
     with open(path+file_name, mode) as f:
         if mode == 'a':
             f.write('\n')
@@ -45,7 +45,7 @@ def raw_audio_transform(sample, sample_rate=None):
         pinyin = ' '.join(pinyin) # 使用空格分离单字
         chinese = [text[i] for i in range(len(text)) if i%2==0]
         return {'audio':audio,
-                'text': pinyin,
+                'text': '. '+pinyin+' ..', # 句子结尾加句号
                 'chinese': chinese}
 sample_rate = 16000               
 # dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, \
@@ -53,7 +53,7 @@ sample_rate = 16000
 dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, sample_rate=sample_rate)
 
 # loaderGenerator = RawLoaderGenerator(labels, k_size=5, num_workers=1)
-loaderGenerator = MelLoaderGenerator(labels, k_size=5, num_workers=1, sample_rate=sample_rate)
+loaderGenerator = MelLoaderGenerator(labels, k_size=128, num_workers=1, sample_rate=sample_rate)
 batch_size = 256
 train_set, test_set = dataset.split([1,0])
 train_loader = loaderGenerator.dataloader(train_set, batch_size=batch_size)
@@ -81,13 +81,13 @@ def load_checkpoint(path):
         if 'model_state_dict' in checkpoint:
             model.load_state_dict(checkpoint['model_state_dict'])
 # LOAD_PATH = './checkpoint/tacotron2/model_temp.pt'
-LOAD_PATH = './checkpoint/tacotron2/model_no.pt'
+LOAD_PATH = './checkpoint/tacotron2/model_n2.pt'
 load_checkpoint(LOAD_PATH)
 
-# params = model.parameters()
-params = list(model.embedding.parameters())+list(model.encoder.parameters())+list(model.speaker_encoder.parameters())
+params = model.parameters()
+# params = list(model.embedding.parameters())+list(model.encoder.parameters())+list(model.speaker_encoder.parameters())
 # optimizer = torch.optim.SGD(params, lr=0.01, momentum=0.9)
-optimizer = torch.optim.Adam(params, lr=0.001)
+optimizer = torch.optim.Adam(params, lr=0.0001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 initial_epoch = 0
 mse_loss = torch.nn.MSELoss()

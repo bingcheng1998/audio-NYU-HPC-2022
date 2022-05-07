@@ -3,7 +3,7 @@
 #SBATCH --ntasks-per-node=2              # runs 2 tasks on each server
 #SBATCH --cpus-per-task=1                # uses 1 compute core per task
 #SBATCH --time=20:00:00
-#SBATCH --mem=4GB                        # CPU memory
+#SBATCH --mem=10GB                        # CPU memory
 #SBATCH --job-name=python-train-audio-zh
 #SBATCH --output=log/tts-%j.out
 #SBATCH --gres=gpu:rtx8000:1
