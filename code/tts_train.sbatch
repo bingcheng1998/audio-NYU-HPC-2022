@@ -6,7 +6,7 @@
 #SBATCH --mem=4GB                        # CPU memory
 #SBATCH --job-name=python-train-audio-zh
 #SBATCH --output=log/tts-%j.out
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:rtx8000:1
 
 module purge
 singularity exec --nv \

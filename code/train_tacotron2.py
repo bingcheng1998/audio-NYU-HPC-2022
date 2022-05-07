@@ -8,7 +8,7 @@ from torch.nn.utils.rnn import pad_sequence
 from utils.dataset import AiShell3PersonDataset, RawLoaderGenerator, AiShell3Dataset, MelLoaderGenerator
 
 
-def save_log(file_name, log, mode='a', path = './log/n3-'):
+def save_log(file_name, log, mode='a', path = './log/n1-'):
     with open(path+file_name, mode) as f:
         if mode == 'a':
             f.write('\n')
@@ -54,7 +54,7 @@ dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform
 
 # loaderGenerator = RawLoaderGenerator(labels, k_size=5, num_workers=1)
 loaderGenerator = MelLoaderGenerator(labels, k_size=5, num_workers=1, sample_rate=sample_rate)
-batch_size = 128
+batch_size = 256
 train_set, test_set = dataset.split([1,0])
 train_loader = loaderGenerator.dataloader(train_set, batch_size=batch_size)
 
@@ -70,9 +70,18 @@ safe_log = lambda x: torch.log(x+2**(-15))
 from model.MyTacotron2 import MyTacotron2
 model = MyTacotron2(labels).to(device)
 # model = my_tacotron2.to(device)
+from os.path import exists
+def load_checkpoint(path):
+    if exists(path):
+        checkpoint = torch.load(path, map_location=device)
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+# LOAD_PATH = './checkpoint/tacotron2/model_temp.pt'
+LOAD_PATH = './checkpoint/tacotron2/model_3.pt'
+load_checkpoint(LOAD_PATH)
 
 params = model.parameters()
-# optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
+# optimizer = torch.optim.SGD(params, lr=0.01, momentum=0.9)
 optimizer = torch.optim.Adam(params, lr=0.001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 initial_epoch = 0

@@ -117,6 +117,7 @@ class MyTacotron2(Tacotron2):
 
         embedded_inputs = self.embedding(tokens).transpose(1, 2)
         encoder_outputs = self.encoder(embedded_inputs, lengths)
+        
         # My change: calculate speaker_emb, and put it inside encoder_outputs (concat)
         # speaker_emb = self.speaker_encoder(mel_specgram, mel_specgram_lengths) # input: [bs, L, mel_in]; output: [bs, out_dim]
         if speaker_emb is None:
@@ -124,6 +125,7 @@ class MyTacotron2(Tacotron2):
         speaker_emb = speaker_emb.unsqueeze(1).expand(-1, encoder_outputs.shape[1], -1) # (bs, L, out_dim)
         encoder_outputs = torch.concat([encoder_outputs, speaker_emb], -1)
         # end this part
+
         mel_specgram, mel_specgram_lengths, _, alignments = self.decoder.infer(encoder_outputs, lengths)
 
         mel_outputs_postnet = self.postnet(mel_specgram)
