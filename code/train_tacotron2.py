@@ -68,7 +68,11 @@ safe_log = lambda x: torch.log(x+2**(-15))
 # new_embedding.weight[:tacotron2.embedding.num_embeddings, :].data=tacotron2.embedding.weight.data
 # my_tacotron2.embedding=new_embedding
 from model.MyTacotron2 import MyTacotron2
-model = MyTacotron2(labels).to(device)
+model = MyTacotron2(labels, 
+    decoder=bundle.get_tacotron2().decoder, 
+    postnet=bundle.get_tacotron2().postnet, 
+    speaker_emb_size=128
+    ).to(device)
 # model = my_tacotron2.to(device)
 from os.path import exists
 def load_checkpoint(path):
@@ -77,10 +81,11 @@ def load_checkpoint(path):
         if 'model_state_dict' in checkpoint:
             model.load_state_dict(checkpoint['model_state_dict'])
 # LOAD_PATH = './checkpoint/tacotron2/model_temp.pt'
-LOAD_PATH = './checkpoint/tacotron2/model_3.pt'
+LOAD_PATH = './checkpoint/tacotron2/model_no.pt'
 load_checkpoint(LOAD_PATH)
 
-params = model.parameters()
+# params = model.parameters()
+params = list(model.embedding.parameters())+list(model.encoder.parameters())+list(model.speaker_encoder.parameters())
 # optimizer = torch.optim.SGD(params, lr=0.01, momentum=0.9)
 optimizer = torch.optim.Adam(params, lr=0.001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)

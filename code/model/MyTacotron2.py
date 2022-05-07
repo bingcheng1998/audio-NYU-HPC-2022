@@ -9,15 +9,23 @@ class MyTacotron2(Tacotron2):
     def __init__(
         self,
         labels,
-        speaker_emb_size = 256
+        speaker_emb_size = 128,
+        decoder = None,
+        postnet = None,
     ) -> None:
         _tacotron2_params=_get_taco_params(n_symbols=len(labels))
-        org_encoder_embedding_dim = _tacotron2_params['encoder_embedding_dim']
-        _tacotron2_params['encoder_embedding_dim'] += speaker_emb_size
         super().__init__(**_tacotron2_params)
+
+        cutted_encoder_embedding_dim = _tacotron2_params['encoder_embedding_dim'] - speaker_emb_size
         self.speaker_encoder = SpeakerEncoder(_tacotron2_params['n_mels'], 256, speaker_emb_size)
-        self.encoder = _Encoder(org_encoder_embedding_dim, _tacotron2_params['encoder_n_convolution'], _tacotron2_params['encoder_kernel_size'])
+        self.embedding = torch.nn.Embedding(_tacotron2_params['n_symbol'], cutted_encoder_embedding_dim)
+        self.encoder = _Encoder(cutted_encoder_embedding_dim, _tacotron2_params['encoder_n_convolution'], _tacotron2_params['encoder_kernel_size'])
+        if decoder is not None:
+            self.decoder = decoder
+        if postnet is not None:
+            self.postnet = postnet
         self.speaker_emb_size = speaker_emb_size
+        self.version = '0.05'
     
     def forward(
         self,
