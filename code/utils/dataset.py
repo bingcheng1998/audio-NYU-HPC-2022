@@ -15,6 +15,7 @@ import torchaudio
 import pickle
 from torch.utils.data import DataLoader, Dataset, random_split
 from torch.nn.utils.rnn import pad_sequence
+from utils.audio import trim_mel_silence
 
 cache_path = '/scratch/bh2283/.cache/'
 
@@ -459,7 +460,7 @@ class MelLoaderGenerator:
         # for audio in audio_list:
             # print(audio.shape)
 
-        mels_list = [safe_log(mel_transform(audio_list[i]).squeeze()).transpose(0,1) for i in range(len(audio_list))]
+        mels_list = [safe_log(trim_mel_silence(mel_transform(audio_list[i]).squeeze())).transpose(0,1) for i in range(len(audio_list))]
         # for mel in mels_list:
         #     print(mel.shape)
         mel_length = torch.tensor([mel.shape[-1] for mel in mels_list])
@@ -579,8 +580,8 @@ if __name__ == '__main__':
     # dataset = CvCorpus8Dataset('/scratch/bh2283/data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=raw_audio_transform)
     # dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
     # dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
-    # dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform)
-    dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, person_id='SSB0011')
+    dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform)
+    # dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, person_id='SSB0011')
     from pypinyin import lazy_pinyin
     from helper import get_labels
     labels = get_labels()

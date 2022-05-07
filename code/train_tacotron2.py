@@ -2,13 +2,12 @@ import os
 
 import torch
 import torchaudio
-from pypinyin import lazy_pinyin
-from torch.nn.utils.rnn import pad_sequence
+# from pypinyin import lazy_pinyin
+# from torch.nn.utils.rnn import pad_sequence
 
-from utils.dataset import AiShell3PersonDataset, RawLoaderGenerator, AiShell3Dataset, MelLoaderGenerator
+from utils.dataset import AiShell3Dataset, MelLoaderGenerator # AiShell3PersonDataset, RawLoaderGenerator, 
 
-
-def save_log(file_name, log, mode='a', path = './log/n4-'):
+def save_log(file_name, log, mode='a', path = './log/n5-'):
     with open(path+file_name, mode) as f:
         if mode == 'a':
             f.write('\n')
@@ -37,7 +36,7 @@ labels = _get_chars() + ('1', '2', '3', '4', '5') # 音调，5是轻声
 
 def raw_audio_transform(sample, sample_rate=None):
         audio = sample['audio']
-        audio = torchaudio.functional.vad(audio, sample_rate, trigger_level=5)
+        # audio = torchaudio.functional.vad(audio, sample_rate, trigger_level=5)
         audio = audio / torch.abs(audio).max()*0.15
         text = sample['text']
         text = text.split(' ')
@@ -45,7 +44,7 @@ def raw_audio_transform(sample, sample_rate=None):
         pinyin = ' '.join(pinyin) # 使用空格分离单字
         chinese = [text[i] for i in range(len(text)) if i%2==0]
         return {'audio':audio,
-                'text': '. '+pinyin+' ..', # 句子结尾加句号
+                'text': pinyin,
                 'chinese': chinese}
 sample_rate = 16000               
 # dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, \
@@ -54,14 +53,14 @@ dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform
 
 # loaderGenerator = RawLoaderGenerator(labels, k_size=5, num_workers=1)
 loaderGenerator = MelLoaderGenerator(labels, k_size=128, num_workers=1, sample_rate=sample_rate)
-batch_size = 256
+batch_size = 5
 train_set, test_set = dataset.split([1,0])
 train_loader = loaderGenerator.dataloader(train_set, batch_size=batch_size)
 
-mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,\
-            n_fft=1024,power=1,hop_length=256,win_length=1024, n_mels=80, \
-                f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney").to(device)
-safe_log = lambda x: torch.log(x+2**(-15))
+# mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,\
+#             n_fft=1024,power=1,hop_length=256,win_length=1024, n_mels=80, \
+#                 f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney").to(device)
+# safe_log = lambda x: torch.log(x+2**(-15))
 
 # my_tacotron2 = bundle.get_tacotron2()
 # new_embedding = torch.nn.Embedding(len(labels), tacotron2.embedding.embedding_dim)
@@ -87,7 +86,7 @@ load_checkpoint(LOAD_PATH)
 params = model.parameters()
 # params = list(model.embedding.parameters())+list(model.encoder.parameters())+list(model.speaker_encoder.parameters())
 # optimizer = torch.optim.SGD(params, lr=0.01, momentum=0.9)
-optimizer = torch.optim.Adam(params, lr=0.0001)
+optimizer = torch.optim.Adam(params, lr=0.001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 initial_epoch = 0
 mse_loss = torch.nn.MSELoss()
