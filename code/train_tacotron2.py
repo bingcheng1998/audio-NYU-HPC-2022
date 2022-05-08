@@ -7,7 +7,7 @@ import torchaudio
 
 from utils.dataset import AiShell3Dataset, MelLoaderGenerator # AiShell3PersonDataset, RawLoaderGenerator, 
 
-def save_log(file_name, log, mode='a', path = './log/n5-'):
+def save_log(file_name, log, mode='a', path = './log/n6-'):
     with open(path+file_name, mode) as f:
         if mode == 'a':
             f.write('\n')
@@ -44,7 +44,7 @@ def raw_audio_transform(sample, sample_rate=None):
         pinyin = ' '.join(pinyin) # 使用空格分离单字
         chinese = [text[i] for i in range(len(text)) if i%2==0]
         return {'audio':audio,
-                'text': pinyin,
+                'text': pinyin+' .',
                 'chinese': chinese}
 sample_rate = 16000               
 # dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, \
@@ -52,10 +52,12 @@ sample_rate = 16000
 dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, sample_rate=sample_rate)
 
 # loaderGenerator = RawLoaderGenerator(labels, k_size=5, num_workers=1)
-loaderGenerator = MelLoaderGenerator(labels, k_size=128, num_workers=1, sample_rate=sample_rate)
-batch_size = 5
+loaderGenerator = MelLoaderGenerator(labels, k_size=256, num_workers=1, sample_rate=sample_rate)
+batch_size = 256 if device == torch.device("cuda") else 4
 train_set, test_set = dataset.split([1,0])
 train_loader = loaderGenerator.dataloader(train_set, batch_size=batch_size)
+
+save_log(f'e.txt', ['Batch size:', batch_size])
 
 # mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,\
 #             n_fft=1024,power=1,hop_length=256,win_length=1024, n_mels=80, \
@@ -68,8 +70,8 @@ train_loader = loaderGenerator.dataloader(train_set, batch_size=batch_size)
 # my_tacotron2.embedding=new_embedding
 from model.MyTacotron2 import MyTacotron2
 model = MyTacotron2(labels, 
-    decoder=bundle.get_tacotron2().decoder, 
-    postnet=bundle.get_tacotron2().postnet, 
+    # decoder=bundle.get_tacotron2().decoder, 
+    # postnet=bundle.get_tacotron2().postnet, 
     speaker_emb_size=128
     ).to(device)
 # model = my_tacotron2.to(device)
@@ -79,9 +81,11 @@ def load_checkpoint(path):
         checkpoint = torch.load(path, map_location=device)
         if 'model_state_dict' in checkpoint:
             model.load_state_dict(checkpoint['model_state_dict'])
-# LOAD_PATH = './checkpoint/tacotron2/model_temp.pt'
-LOAD_PATH = './checkpoint/tacotron2/model_n2.pt'
+LOAD_PATH = './checkpoint/tacotron2/model_temp.pt'
+# LOAD_PATH = './checkpoint/tacotron2/model_n3.pt'
 load_checkpoint(LOAD_PATH)
+
+torch.nn.init.xavier_uniform_(model.decoder.gate_layer.weight, gain=torch.nn.init.calculate_gain('sigmoid'))
 
 params = model.parameters()
 # params = list(model.embedding.parameters())+list(model.encoder.parameters())+list(model.speaker_encoder.parameters())
@@ -156,7 +160,7 @@ def train(epoch=1):
             
             batch_train_loss.append(loss.item())
 
-            if i_batch % (500 // batch_size) == 0: # log about each 1000 data
+            if i_batch % (500 // batch_size) == 0: # log about each n data
                 # test_loss = test()
                 test_loss = 0
                 train_loss = mean(batch_train_loss)
@@ -164,7 +168,9 @@ def train(epoch=1):
                 train_loss_q.append(train_loss)
                 save_log(f'e{epoch}.txt', ['🟣 epoch', epoch, 'data', i_batch*batch_size, 
                     'lr', scheduler.get_last_lr(), 
-                    'train_loss', train_loss, 'test_loss', test_loss])
+                    'train_loss', '{:.3f}'.format(train_loss), 
+                    'test_loss', test_loss, 
+                    'bce_loss', '{:.3f}'.format(loss3.item())])
                 save_temp(epoch, test_loss) # save temp checkpoint
                 # test_decoder(epoch, 5)
             

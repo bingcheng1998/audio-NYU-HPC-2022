@@ -1,9 +1,9 @@
 import torch
 
-def trim_mel_silence(mel_in, min_range=10, ratio=8.0, min_threshold=0.01):
+def trim_mel_silence(mel_in, min_range=10, ratio=5.0, min_threshold=0.1):
     # mel_in: [mel_bin, L]
     # you should make sure the top min_range mel columns are silent
-    assert ratio > 1.0, f'get ratio {ratio}, but it should be larger than 1.0, and 5.0 is recommended.'
+    assert ratio >= 1.0, f'get ratio {ratio}, but it should be larger than 1.0, and 5.0 is recommended.'
     mel_sum = torch.sum(mel_in, dim=0) # [L]
     top10 = torch.sum(mel_sum[:min_range])
     threshold = min(top10*ratio/min_range, min_threshold)

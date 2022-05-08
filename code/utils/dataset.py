@@ -15,7 +15,10 @@ import torchaudio
 import pickle
 from torch.utils.data import DataLoader, Dataset, random_split
 from torch.nn.utils.rnn import pad_sequence
-from utils.audio import trim_mel_silence
+if __name__ == '__main__':
+    from audio import trim_mel_silence
+else:
+    from utils.audio import trim_mel_silence
 
 cache_path = '/scratch/bh2283/.cache/'
 
@@ -463,7 +466,7 @@ class MelLoaderGenerator:
         mels_list = [safe_log(trim_mel_silence(mel_transform(audio_list[i]).squeeze())).transpose(0,1) for i in range(len(audio_list))]
         # for mel in mels_list:
         #     print(mel.shape)
-        mel_length = torch.tensor([mel.shape[-1] for mel in mels_list])
+        mel_length = torch.tensor([mel.shape[-2] for mel in mels_list])
         mels_tensor = pad_sequence(mels_list, batch_first=True, padding_value=torch.log(torch.tensor(2**(-15)))).permute(0,2,1)
         # print(mels_tensor.shape) # [bs, mel_bins, L]
 
@@ -585,8 +588,8 @@ if __name__ == '__main__':
     from pypinyin import lazy_pinyin
     from helper import get_labels
     labels = get_labels()
-    # loaderGenerator = MelLoaderGenerator(get_labels(), k_size=33)
-    loaderGenerator = RawLoaderGenerator(get_labels(), k_size=5)
+    loaderGenerator = MelLoaderGenerator(get_labels(), k_size=256)
+    # loaderGenerator = RawLoaderGenerator(get_labels(), k_size=5)
     train_set, test_set = dataset.split()
     train_loader = loaderGenerator.dataloader(train_set, batch_size=8)
     print('train_set:', len(train_set), 'test_set:',len(test_set))
@@ -594,5 +597,6 @@ if __name__ == '__main__':
     for i_batch, sample_batched in enumerate(train_loader):
         if steps <= 0:
             break
-        print(sample_batched['audio'].shape, sample_batched['target'].shape)
+        print(sample_batched['mel'].shape, sample_batched['target'].shape)
+        print(sample_batched['mel_len'], sample_batched['target_len'])
         steps -= 1
