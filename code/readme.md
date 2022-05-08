@@ -13,7 +13,7 @@
 - [x] quartz 数据集制作，简化为同一个母类，使用transformer对数据预处理
 - [x] quartz + fft embedding dataset train 26 字母
 - [ ] 拼音按照音素划分，符合163数据集的标注
-- [ ] 重写dataloader，数据集+mask
+- [x] 重写dataloader，数据集+mask
 - [x] 训练quartz
 - [x] RNN用户特征提取
 - [x] quartz解码器
@@ -21,8 +21,7 @@
 - [x] 实验标准汉语拼音的训练
 - [x] 多数据集联合
 - [x] 音频去掉静音区
-- [ ] 在传统tacotron2上小batch训练单人中文数据
-- [ ] 扩增说话人模块，使用那个静态说话人模块，不训练speaker encoder，进行多说话人训练
+- [x] 在传统tacotron2上小batch训练单人中文数据
 - [ ] 训练speaker encoder，进行多说话人训练
 - [ ] datatang 和 dataaishell3的loader
 - [ ] tacotron2 训练+添加用户音色模块

@@ -9,22 +9,24 @@ class MyTacotron2(Tacotron2):
     def __init__(
         self,
         labels,
-        speaker_emb_size = 128,
+        # speaker_emb_size = 128,
         decoder = None,
         postnet = None,
     ) -> None:
         _tacotron2_params=_get_taco_params(n_symbols=len(labels))
         super().__init__(**_tacotron2_params)
 
-        cutted_encoder_embedding_dim = _tacotron2_params['encoder_embedding_dim'] - speaker_emb_size
-        self.speaker_encoder = SpeakerEncoder(_tacotron2_params['n_mels'], 256, speaker_emb_size)
-        self.embedding = torch.nn.Embedding(_tacotron2_params['n_symbol'], cutted_encoder_embedding_dim)
-        self.encoder = _Encoder(cutted_encoder_embedding_dim, _tacotron2_params['encoder_n_convolution'], _tacotron2_params['encoder_kernel_size'])
+        encoder_embedding_dim = _tacotron2_params['encoder_embedding_dim']
+
+        # cutted_encoder_embedding_dim = _tacotron2_params['encoder_embedding_dim'] - speaker_emb_size
+        self.speaker_encoder = SpeakerEncoder(_tacotron2_params['n_mels'], 256, encoder_embedding_dim)
+        # self.embedding = torch.nn.Embedding(_tacotron2_params['n_symbol'], cutted_encoder_embedding_dim)
+        # self.encoder = _Encoder(cutted_encoder_embedding_dim, _tacotron2_params['encoder_n_convolution'], _tacotron2_params['encoder_kernel_size'])
         if decoder is not None:
             self.decoder = decoder
         if postnet is not None:
             self.postnet = postnet
-        self.speaker_emb_size = speaker_emb_size
+        # self.speaker_emb_size = speaker_emb_size
         self.version = '0.05'
     
     def forward(
@@ -62,15 +64,13 @@ class MyTacotron2(Tacotron2):
         """
 
         embedded_inputs = self.embedding(tokens).transpose(1, 2) # (bs, encoder_embedding_dim, L)
-
         encoder_outputs = self.encoder(embedded_inputs, token_lengths) # (bs, L, encoder_embedding_dim)
 
         # My change: calculate speaker_emb, and put it inside encoder_outputs (concat)
         if speaker_emb is None:
-            speaker_emb = self.speaker_encoder(mel_specgram.transpose(1,2), mel_specgram_lengths) # input: [bs, L, mel_in]; output: [bs, speaker_emb_size]
-        speaker_emb = speaker_emb.unsqueeze(1).expand(-1, encoder_outputs.shape[1], -1) # (bs, L, speaker_emb_size)
-        # print('xx', encoder_outputs.shape, speaker_emb.shape)
-        encoder_outputs = torch.concat([encoder_outputs, speaker_emb], -1) # (bs, L, speaker_emb_size+encoder_embedding_dim)
+            speaker_emb = self.speaker_encoder(mel_specgram.transpose(1,2), mel_specgram_lengths) # input: [bs, L, mel_in]; output: [bs, encoder_embedding_dim]
+        speaker_emb = speaker_emb.unsqueeze(1) # (bs, 1, encoder_embedding_dim)
+        encoder_outputs = torch.concat([speaker_emb, encoder_outputs], -2) # (bs, L+1, encoder_embedding_dim)
         
         # end this part
 

@@ -216,7 +216,7 @@ class AiShell3Dataset(SpeechDataset):
             waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
         dict_id = audio_name.rsplit('/',1)[-1].split('.')[0]
         audio_content = self.transcript[dict_id]
-        sample = {'audio': waveform, 'text': audio_content}
+        sample = {'audio': waveform, 'text': audio_content, 'audio_path': audio_name}
         if self.transform:
             sample = self.transform(sample, self.sample_rate)
         return sample
@@ -450,6 +450,10 @@ class MelLoaderGenerator:
         audio_length = [audio.shape[-1] for audio in audio_list]
         target_list = [self.label2id(item['text']) for item in batch]
         target_length = [len(l) for l in target_list]
+        def path2user(path):
+            # eg: /scratch/bh2283/data/data_aishell3/train/wav/SSB0145/SSB01450373.wav to SSB0145
+            return path.rsplit('/', 1)[0].rsplit('/', 1)[1]
+        speaker = [path2user(batch[i]['audio_path']) for i in range(bs)]
 
         target_length, target_list, audio_length, audio_list = zip(*sorted(zip(target_length, target_list, audio_length, audio_list), reverse=True))
         target_length = torch.tensor(target_length)
@@ -485,7 +489,7 @@ class MelLoaderGenerator:
         return {
                 # 'audio': audio_list, 'audio_len': audio_length, 
                 'target': target_list, 'target_len': target_length,
-                'mel': mels_tensor, 'mel_len': mel_length,
+                'mel': mels_tensor, 'mel_len': mel_length, 'speaker': speaker
                 }
 
     def dataloader(self, audioDataset, batch_size, shuffle=True):
@@ -570,14 +574,17 @@ if __name__ == '__main__':
     #             'chinese': text}
     def raw_audio_transform(sample, sample_rate=None):
         audio = sample['audio']
+        # audio = torchaudio.functional.vad(audio, sample_rate, trigger_level=5)
+        audio = audio / torch.abs(audio).max()*0.15
         text = sample['text']
-        def chinese2pinyin(text):
-            pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
-            pinyin = [i for i in '|'.join(pinyin)]
-            return pinyin
-        return {'audio':audio,
-                'text': chinese2pinyin(text),
-                'chinese': text}
+        text = text.split(' ')
+        pinyin = [text[i] for i in range(len(text)) if i%2==1]
+        pinyin = ' '.join(pinyin) # 使用空格分离单字
+        chinese = [text[i] for i in range(len(text)) if i%2==0]
+        sample['audio'] = audio
+        sample['text'] = pinyin+' .'
+        sample['chinese'] = chinese
+        return sample
     # dataset = SpeechOceanDataset('/scratch/bh2283/data/zhspeechocean/', transform=raw_audio_transform)
     # dataset = STCMDSDataset('/scratch/bh2283/data/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform)
     # dataset = CvCorpus8Dataset('/scratch/bh2283/data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=raw_audio_transform)
@@ -587,9 +594,9 @@ if __name__ == '__main__':
     # dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, person_id='SSB0011')
     from pypinyin import lazy_pinyin
     from helper import get_labels
-    labels = get_labels()
-    loaderGenerator = MelLoaderGenerator(get_labels(), k_size=256)
-    # loaderGenerator = RawLoaderGenerator(get_labels(), k_size=5)
+    labels = get_labels()+('1','2','3','4','5',' ','.')
+    loaderGenerator = MelLoaderGenerator(labels, k_size=256)
+    # loaderGenerator = RawLoaderGenerator(labels, k_size=5)
     train_set, test_set = dataset.split()
     train_loader = loaderGenerator.dataloader(train_set, batch_size=8)
     print('train_set:', len(train_set), 'test_set:',len(test_set))
@@ -599,4 +606,5 @@ if __name__ == '__main__':
             break
         print(sample_batched['mel'].shape, sample_batched['target'].shape)
         print(sample_batched['mel_len'], sample_batched['target_len'])
+        print(sample_batched['speaker'])
         steps -= 1

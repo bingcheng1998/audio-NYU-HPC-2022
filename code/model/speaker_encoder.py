@@ -2,14 +2,16 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 
-class SpeakerEncoder(nn.Module):
+class LSTMSpeakerEncoder(nn.Module):
     def __init__(self, n_mel, hidden_dim, out_dim) -> None:
         super().__init__()
         self.lstm = nn.LSTM(input_size=n_mel,
                             hidden_size=hidden_dim, 
                             num_layers=3, 
                             batch_first=True)
-        self.linear = nn.Linear(in_features=hidden_dim, 
+        self.linear1 = nn.Linear(in_features=hidden_dim, 
+                                out_features=hidden_dim)
+        self.linear = nn.Linear(in_features=hidden_dim,
                                 out_features=out_dim)
         self.relu = torch.nn.ReLU()
 
@@ -23,12 +25,15 @@ class SpeakerEncoder(nn.Module):
         # print('out', out.shape) # [bs, L, hidden_dim]
         # We take only the hidden state of the lens-1 layer
         index_out = [out[i][lens[i]-1].unsqueeze(0) for i in range(out.shape[0])]
-        embeds_raw = torch.concat(index_out, dim=0)
+        embeds_raw = torch.concat(index_out, dim=0) # (N, hidden_dim)
         # print('embeds_raw', embeds_raw.shape)
         # L2-normalize it 
-        embeds_raw = self.relu(self.linear(embeds_raw))
+        embeds_raw = self.linear(self.relu(self.linear1(embeds_raw))) # (N, out_dim)
         embeds = embeds_raw / (torch.norm(embeds_raw, dim=1, keepdim=True) + 1e-5)        
         return embeds
+
+SpeakerEncoder = LSTMSpeakerEncoder
+
 
 if __name__ == '__main__':
     model = SpeakerEncoder(4, 8, 6)

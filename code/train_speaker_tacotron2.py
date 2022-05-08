@@ -68,11 +68,10 @@ save_log(f'e.txt', ['Batch size:', batch_size])
 # new_embedding = torch.nn.Embedding(len(labels), tacotron2.embedding.embedding_dim)
 # new_embedding.weight[:tacotron2.embedding.num_embeddings, :].data=tacotron2.embedding.weight.data
 # my_tacotron2.embedding=new_embedding
-from model.MyTacotron2 import MyTacotron2
+from model.SpeakerTacotron2 import MyTacotron2
 model = MyTacotron2(labels, 
     # decoder=bundle.get_tacotron2().decoder, 
-    # postnet=bundle.get_tacotron2().postnet, 
-    speaker_emb_size=128
+    # postnet=bundle.get_tacotron2().postnet,
     ).to(device)
 # model = my_tacotron2.to(device)
 from os.path import exists
@@ -80,14 +79,12 @@ def load_checkpoint(path):
     if exists(path):
         checkpoint = torch.load(path, map_location=device)
         if 'model_state_dict' in checkpoint:
-            model.load_state_dict(checkpoint['model_state_dict'], strict=False)
-LOAD_PATH = './checkpoint/tacotron2/model_n4.pt'
+            model.load_state_dict(checkpoint['model_state_dict'])
+LOAD_PATH = './checkpoint/tacotron2/model_no.pt'
 # LOAD_PATH = './checkpoint/tacotron2/model_n3.pt'
 load_checkpoint(LOAD_PATH)
 
-# torch.nn.init.xavier_uniform_(model.decoder.gate_layer.weight, gain=torch.nn.init.calculate_gain('sigmoid'))
-from model.speaker_encoder import SpeakerEncoder
-model.speaker_encoder = SpeakerEncoder(80, 256, 128).to(device)
+torch.nn.init.xavier_uniform_(model.decoder.gate_layer.weight, gain=torch.nn.init.calculate_gain('sigmoid'))
 
 params = model.parameters()
 # params = list(model.embedding.parameters())+list(model.encoder.parameters())+list(model.speaker_encoder.parameters())
@@ -109,7 +106,7 @@ def dump_model(EPOCH, LOSS, PATH):
             }, PATH)
 
 def save_temp(EPOCH, LOSS):
-    PATH = f"./checkpoint/tacotron2/model_temp.pt"
+    PATH = f"./checkpoint/tacotron2/model_temp2.pt"
     dump_model(EPOCH, LOSS, PATH)
     
 def save_checkpoint(EPOCH, LOSS):
