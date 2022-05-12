@@ -156,8 +156,8 @@ labels_sizes = [len(labels) for labels in labels_list]
 builder = Wav2Vec2Builder(torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN, labels_sizes)
 k_size = builder.kernel_size
 train_set, test_set = dataset.split()
-batch_size = train_set.dataset.batch_size # tain batch size
-batch_size = 16
+batch_size = train_set.dataset.batch_size//2 # tain batch size
+# batch_size = 16
 test_batch = batch_size//4 # test batch size, keep bs small to save memory
 loaderGenerator = MultiTaskRawLoaderGenerator(labels_list, translators_list, k_size)
 train_loader = loaderGenerator.dataloader(train_set, batch_size)
@@ -183,6 +183,7 @@ save_log(f'e.txt', ['k_size:', builder.kernel_size])
 params = []
 params += list(model.encoder.parameters())
 for i in range(len(model.aux)):
+    model.aux[i] = model.aux[i].to(device)
     params += list(model.aux[i].parameters())
 # params = model.aux.parameters()
 model = model.to(device)
