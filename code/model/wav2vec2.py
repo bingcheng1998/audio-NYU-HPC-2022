@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Dict, Tuple, Any
 import torch
+from torchaudio.transforms import FrequencyMasking, TimeMasking
 from torchaudio._internal import load_state_dict_from_url
-from torchaudio.models import wav2vec2_model, Wav2Vec2Model
+# from torchaudio.models import wav2vec2_model, Wav2Vec2Model
 
 class Wav2Vec2Builder:
     def __init__(self, bundle, out_sizes: list):
@@ -30,7 +31,7 @@ class Wav2Vec2Builder:
     def _get_local_state_dict(self, path):
         pass
 
-    def get_model(self, checkpoint=None, url=None) -> Wav2Vec2Model:
+    def get_model(self, checkpoint=None, url=None):
         model = Wave2vec2(self.feature_extractor, self.encoder, self.aux)
         if checkpoint is not None:
             model.load_state_dict(self._get_local_state_dict(checkpoint))
@@ -45,9 +46,13 @@ class Wave2vec2(torch.nn.Module):
         self.feature_extractor = feature_extractor
         self.encoder = encoder
         self.aux = aux
+        self.f_mask = FrequencyMasking(freq_mask_param=15)
+        self.t_mask = TimeMasking(time_mask_param=25)
 
     def forward(self, x, lengths=None):
         x, lengths = self.feature_extractor(x, lengths)
+        x = self.t_mask(x) # time mask
+        x = self.f_mask(x) # feature mask
         x = self.encoder(x, lengths)
         output = []
         for aux_i in self.aux:

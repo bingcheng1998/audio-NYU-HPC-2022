@@ -5,12 +5,15 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torchaudio
+import platform
 
-matplotlib.rcParams['font.family'] = ['SimHei'] # linux
-# matplotlib.rcParams['font.sans-serif'] = ['Arial Unicode MS, SimHei'] # macos
+if platform.system() == 'Linux':
+    matplotlib.rcParams['font.family'] = ['SimHei'] # linux
+else: # macos
+    matplotlib.rcParams['font.sans-serif'] = ['Arial Unicode MS, SimHei'] # macos
 matplotlib.rcParams['figure.dpi'] = 200
-import librosa
 
+import librosa
 from .helper import initial_table
 from .dataset import get_audio, parser_line
 
