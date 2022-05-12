@@ -549,7 +549,8 @@ class RawLoaderGenerator:
             (torch.tensor(l), torch.zeros([max_target_length-len(l)], dtype=torch.int)), -1).unsqueeze(0) 
             for l in target_list], 0)
         device = self.device
-        return {'audio': audio_list, 'target': target_list, 'audio_len': audio_length, 'target_len': target_length}
+        return {'audio': audio_list, 'audio_len': audio_length, 
+                'target': target_list, 'target_len': target_length}
 
     def dataloader(self, audioDataset, batch_size, shuffle=True):
         # k_size is the kernel size for the encoder, for data augmentation
@@ -572,7 +573,7 @@ if __name__ == '__main__':
     #     return {'audio':safe_log(mel_transform(audio)),
     #             'text': chinese2pinyin(text),
     #             'chinese': text}
-    def raw_audio_transform(sample, sample_rate=None):
+    def ai_shell_3_transform(sample, sample_rate=None):
         audio = sample['audio']
         # audio = torchaudio.functional.vad(audio, sample_rate, trigger_level=5)
         audio = audio / torch.abs(audio).max()*0.15
@@ -590,7 +591,7 @@ if __name__ == '__main__':
     # dataset = CvCorpus8Dataset('/scratch/bh2283/data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=raw_audio_transform)
     # dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
     # dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
-    dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform)
+    dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=ai_shell_3_transform)
     # dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, person_id='SSB0011')
     from pypinyin import lazy_pinyin
     from helper import get_labels

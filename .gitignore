@@ -22,3 +22,4 @@ music/log/
 code/checkpoint/
 data/
 senv/
+.vscode-server/

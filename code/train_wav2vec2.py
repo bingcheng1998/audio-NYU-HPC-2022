@@ -10,7 +10,7 @@ from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
 from utils.dataset import *
 from utils.helper import get_labels
 
-def save_log(file_name, log, mode='a', path = './log/n7-'):
+def save_log(file_name, log, mode='a', path = './log/n0-'):
     with open(path+file_name, mode) as f:
         if mode == 'a':
             f.write('\n')
@@ -30,27 +30,39 @@ save_log(f'e.txt', ['device:', device])
 save_log(f'e.txt', ['HPC Node:', os.uname()[1]])
 
 NUM_EPOCHS = 5
-LOAD_PATH = './checkpoint/model_PrimeWords.pt' # checkpoint used if exist
+LOAD_PATH = './checkpoint/wav2vec/model_no.pt' # checkpoint used if exist
 bundle = torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN
 wave2vec_model = bundle.get_model()
 labels = get_labels()
-k_size = wave2vec_model.feature_extractor.conv_layers[0].conv.kernel_size[0] # kernel size for audio encoder
+k_size = wave2vec_model.feature_extractor.conv_layers[0].conv.kernel_size[0] 
+# kernel size for audio encoder, will be used in audio augmentation
+save_log(f'e.txt', ['k_size:', k_size])
 mean = lambda x: sum(x)/len(x)
-
+# exit()
 def chinese2pinyin(text):
     pinyin = lazy_pinyin(text, strict=True,errors=lambda x: u'')
     pinyin = [i for i in '|'.join(pinyin)]
     return pinyin
 
 save_log(f'e.txt', ['Loading Dataset ...'])
-# dataset = AudioDataset('./data/ST-CMDS-20170001_1-OS/')
-# dataset = AiShellDataset('./data/data_aishell/')
-dataset = PrimeWordsDataset('./data/primewords_md_2018_set1/')
-# dataset = SpeechOceanDataset('./data/zhspeechocean/')
+
+def raw_audio_transform(sample, sample_rate=None):
+        audio = sample['audio']
+        audio = audio / torch.abs(audio).max()*0.15
+        text = sample['text']
+        pinyin = chinese2pinyin(text)
+        pinyin = ''.join(pinyin) # 使用空格分离单字
+        chinese = text
+        sample['audio'] = audio
+        sample['text'] = pinyin
+        sample['chinese'] = chinese
+        return sample
+
+dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
 train_set, test_set = dataset.split()
 batch_size = train_set.dataset.batch_size # tain batch size
 test_batch = batch_size//4 # test batch size, keep bs small to save memory
-loaderGenerator = LoaderGenerator(labels, chinese2pinyin, k_size)
+loaderGenerator = RawLoaderGenerator(labels, k_size)
 train_loader = loaderGenerator.dataloader(train_set, batch_size)
 test_loader = loaderGenerator.dataloader(test_set, test_batch, shuffle=False)
 save_log(f'e.txt', ['train_set:', len(train_set), 'test_set:',len(test_set)])
@@ -83,7 +95,7 @@ params = list(model.aux.parameters())+list(model.encoder.parameters())
 # params = model.aux.parameters()
 model = model.to(device)
 
-optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9)
+optimizer = torch.optim.Adam(params, lr=0.001)
 ctc_loss = torch.nn.CTCLoss(zero_infinity=True)
 initial_epoch = 0
 
@@ -128,11 +140,11 @@ def dump_model(EPOCH, LOSS, PATH):
             }, PATH)
 
 def save_temp(EPOCH, LOSS):
-    PATH = f"./checkpoint/model_temp.pt"
+    PATH = f"./checkpoint/wav2vec/model_temp.pt"
     dump_model(EPOCH, LOSS, PATH)
     
 def save_checkpoint(EPOCH, LOSS):
-    PATH = f"./checkpoint/model_{EPOCH}_{'%.3f' % LOSS}.pt"
+    PATH = f"./checkpoint/wav2vec/model_{EPOCH}_{'%.3f' % LOSS}.pt"
     dump_model(EPOCH, LOSS, PATH)
 
 def test():
@@ -141,10 +153,10 @@ def test():
     with torch.no_grad():
         for sample_batched in test_loader:
             # Step 1. Prepare Data
-            waveform = sample_batched['audio']
-            wave_len = sample_batched['audio_len']
-            target = sample_batched['target']
-            target_len = sample_batched['target_len']
+            waveform = sample_batched['audio'].to(device)
+            wave_len = sample_batched['audio_len'].to(device)
+            target = sample_batched['target'].to(device)
+            target_len = sample_batched['target_len'].to(device)
             # Step 2. Run our forward pass
             emissions, emission_len = model(waveform, wave_len)
             emissions = torch.log_softmax(emissions, dim=-1).permute(1,0,2)
@@ -163,10 +175,10 @@ def train(epoch=1):
         for i_batch, sample_batched in enumerate(train_loader):
             model.train()
             # Step 1. Prepare Data
-            waveform = sample_batched['audio']
-            wave_len = sample_batched['audio_len']
-            target = sample_batched['target']
-            target_len = sample_batched['target_len']
+            waveform = sample_batched['audio'].to(device)
+            wave_len = sample_batched['audio_len'].to(device)
+            target = sample_batched['target'].to(device)
+            target_len = sample_batched['target_len'].to(device)
 
             # Step 2. Run our forward pass
             emissions, emission_len = model(waveform, wave_len)

@@ -6,8 +6,8 @@ import torch
 import torch.nn as nn
 import torchaudio
 
-# matplotlib.rcParams['font.family'] = ['SimHei'] # linux
-matplotlib.rcParams['font.sans-serif'] = ['Arial Unicode MS, SimHei'] # macos
+matplotlib.rcParams['font.family'] = ['SimHei'] # linux
+# matplotlib.rcParams['font.sans-serif'] = ['Arial Unicode MS, SimHei'] # macos
 matplotlib.rcParams['figure.dpi'] = 200
 import librosa
 
