@@ -5,10 +5,8 @@
 #SBATCH --time=2:00:00
 #SBATCH --mem=4GB                        # CPU memory
 #SBATCH --job-name=python-train-audio-zh
-#SBATCH --mail-type=END
-#SBATCH --mail-user=bh2283@nyu.edu
 #SBATCH --output=log/audio-zh-%j.out
-#SBATCH --gres=gpu:1             # ~40G memory in total
+#SBATCH --gres=gpu:1
 
 module purge
 singularity exec --nv \
