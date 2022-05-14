@@ -168,36 +168,34 @@ from model.wav2vec2 import Wav2Vec2Builder
 model = builder.get_model()
 save_log(f'e.txt', ['k_size:', builder.kernel_size])
 
-params = []
-params += list(model.encoder.parameters())
-for i in range(len(model.aux)):
-    model.aux[i] = model.aux[i].to(device)
-    params += list(model.aux[i].parameters())
-# params = model.aux.parameters()
+# 不修改feature_extractor，因为在最底层，可以不回传梯度。只对encoder和aux做梯度下降
+for param in model.feature_extractor.parameters():
+    param.requires_grad = False
 model = model.to(device)
-
+params = list(model.encoder.parameters()) + list(model.aux.parameters())
 optimizer = torch.optim.Adam(params, lr=0.001)
 ctc_loss = torch.nn.CTCLoss(zero_infinity=True)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 initial_epoch = 0
 
+# 加载记录点
 save_log(f'e.txt', ['Loading Checkpoint ...'])
 def load_checkpoint(path):
     if exists(path):
         print('file',path,'exist, load checkpoint...')
         checkpoint = torch.load(path, map_location=device)
         if 'model_aux_dict' in checkpoint:
-            for i in range(len(model.aux)):
-                model.aux[i].load_state_dict(checkpoint['model_aux_dict'][i])
+            model.aux.load_state_dict(checkpoint['model_aux_dict'])
         if 'model_encoder_dict' in checkpoint:
             model.encoder.load_state_dict(checkpoint['model_encoder_dict'])
-        epoch = checkpoint['epoch']
+        if 'optimizer_state_dict' in checkpoint:
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        initial_epoch = checkpoint['epoch']
         loss = checkpoint['loss']
-        print(epoch, loss)
+        print(initial_epoch, loss)
 load_checkpoint(LOAD_PATH)
 
-
-
+# 测试集上打印一些示例，可以用肉眼判断训练情况好坏
 def test_decoder(epoch, k):
     model.eval()
     with torch.no_grad():
@@ -210,14 +208,15 @@ def test_decoder(epoch, k):
             emission = emissions[0].cpu().detach()
             transcript = decoders[0](emission)
             save_log(f'e{epoch}.txt', ['Transcript:', transcript])
-
 test_decoder('', 5)
 
+# 训练过程中勤快地保存数据，并且每个epoch保存一个单独的数据（不覆盖）
 def dump_model(EPOCH, LOSS, PATH):
     torch.save({
             'epoch': EPOCH,
-            'model_aux_dict': [model.aux[i].state_dict() for i in range(len(model.aux))],
+            'model_aux_dict': model.aux.state_dict(),
             'model_encoder_dict': model.encoder.state_dict(),
+            'model_feature_extractor_dict': model.feature_extractor.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': LOSS,
             }, PATH)
@@ -230,6 +229,7 @@ def save_checkpoint(EPOCH, LOSS):
     PATH = f"./checkpoint/wav2vec/model_{EPOCH}_{'%.3f' % LOSS}.pt"
     dump_model(EPOCH, LOSS, PATH)
 
+# 测试集上的多个loss计算，于训练集对比
 def test():
     model.eval()
     losses = []
@@ -299,9 +299,9 @@ def train(epoch=1):
                 exit()
             
             batch_train_loss.append(loss.item())
-            b_al.append(al.item())
-            b_ph.append(ph.item())
-            b_tn.append(tn.item())
+            b_al.append(al_loss.item())
+            b_ph.append(ph_loss.item())
+            b_tn.append(tn_loss.item())
 
             if i_batch % (1000 // batch_size) == 0: # log about each 1000 data
                 test_loss, t_al, t_ph, t_tn = test()

@@ -23,6 +23,7 @@ class Wav2Vec2Builder:
             self.aux.append(
                 torch.nn.Linear(self.in_features, out_size, bias=True)
             )
+        self.aux = torch.nn.ModuleList(self.aux)
 
     def _get_url_state_dict(self, url):
         state_dict = load_state_dict_from_url(url)
