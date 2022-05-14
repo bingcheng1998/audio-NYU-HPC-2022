@@ -13,8 +13,8 @@ from model.wav2vec2 import Wav2Vec2Builder
 # 设置训练的参数
 NUM_EPOCHS = 5
 LOAD_PATH = './checkpoint/wav2vec/model_no.pt' # checkpoint used if exist
-LOG_PATH = './log/n0-'
-DATALOADER_WORKERS = 2
+LOG_PATH = './log/n0-' # log file
+DATALOADER_WORKERS = 2 # dataloader workers
 
 # 使用HPC时，训练过程写入文件监控
 def save_log(file_name, log, mode='a', path = LOG_PATH):
@@ -154,9 +154,9 @@ labels_sizes = [len(labels) for labels in labels_list]
 builder = Wav2Vec2Builder(torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN, labels_sizes)
 k_size = builder.kernel_size
 train_set, test_set = dataset.split()
-batch_size = train_set.dataset.batch_size//1.5 # tain batch size
+batch_size = int(train_set.dataset.batch_size*0.9) # tain batch size
 # batch_size = 16
-test_batch = batch_size//4 # test batch size, keep bs small to save memory
+test_batch = int(batch_size/4) # test batch size, keep bs small to save memory
 loaderGenerator = MultiTaskRawLoaderGenerator(labels_list, translators_list, k_size, num_workers=DATALOADER_WORKERS)
 train_loader = loaderGenerator.dataloader(train_set, batch_size)
 test_loader = loaderGenerator.dataloader(test_set, test_batch, shuffle=False)
@@ -174,7 +174,8 @@ for param in model.feature_extractor.parameters():
     param.requires_grad = False
 model = model.to(device)
 params = list(model.encoder.parameters()) + list(model.aux.parameters())
-optimizer = torch.optim.Adam(params, lr=0.001)
+# optimizer = torch.optim.Adam(params, lr=0.001)
+optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
 ctc_loss = torch.nn.CTCLoss(zero_infinity=True)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 initial_epoch = 0
@@ -200,15 +201,21 @@ load_checkpoint(LOAD_PATH)
 def test_decoder(epoch, k):
     model.eval()
     with torch.no_grad():
+        get_transcript = lambda x, emissions: decoders[x](torch.log_softmax(emissions[x][0], dim=-1).cpu().detach())
         for i in range(k):
             sample = test_set[i]
-            print(i, sample['audio'].shape, sample['chinese'])
+            print(i, sample['audio'].shape)
+            save_log(f'e{epoch}.txt', ['Chinese:', sample['chinese']])
             waveform = sample['audio']
             emissions, _ = model(waveform.to(device))
-            emissions = torch.log_softmax(emissions[0], dim=-1)
-            emission = emissions[0].cpu().detach()
-            transcript = decoders[0](emission)
-            save_log(f'e{epoch}.txt', ['Transcript:', transcript])
+            # emissions = torch.log_softmax(emissions[0], dim=-1)
+            # emission = emissions.cpu().detach()
+            # transcript = decoders[0](emission[0])
+            save_log(f'e{epoch}.txt', [
+                'Char level:', get_transcript(0, emissions),
+                '\nPhon level:', get_transcript(1, emissions),
+                '\nTone level:', get_transcript(2, emissions),
+                ])
 test_decoder('', 5)
 
 # 训练过程中勤快地保存数据，并且每个epoch保存一个单独的数据（不覆盖）
@@ -320,13 +327,15 @@ def train(epoch=1):
                     'al:{:.3f}, ph:{:.3f}, tn:{:.3f}'.format(t_al, t_ph, t_tn),
                     ])
                 save_temp(epoch, test_loss) # save temp checkpoint
-                test_decoder(epoch, 5)
                 batch_train_loss, b_al, b_ph, b_tn = [], [], [], []
+            if i_batch % (10000 // batch_size) == 0:
+                test_decoder(epoch, 2)
             
         # scheduler.step()
         save_checkpoint(epoch, mean(test_loss_q))
         save_log(f'e{epoch}.txt', ['============= Final Test ============='])
         test_decoder(epoch, 10) # run some sample prediction and see the result
 
-train(NUM_EPOCHS)
+if __name__ == '__main__':
+    train(NUM_EPOCHS)
 
