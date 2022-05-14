@@ -14,6 +14,7 @@ from model.wav2vec2 import Wav2Vec2Builder
 NUM_EPOCHS = 5
 LOAD_PATH = './checkpoint/wav2vec/model_no.pt' # checkpoint used if exist
 LOG_PATH = './log/n0-'
+DATALOADER_WORKERS = 2
 
 # 使用HPC时，训练过程写入文件监控
 def save_log(file_name, log, mode='a', path = LOG_PATH):
@@ -153,10 +154,10 @@ labels_sizes = [len(labels) for labels in labels_list]
 builder = Wav2Vec2Builder(torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN, labels_sizes)
 k_size = builder.kernel_size
 train_set, test_set = dataset.split()
-batch_size = train_set.dataset.batch_size//2 # tain batch size
+batch_size = train_set.dataset.batch_size//1.5 # tain batch size
 # batch_size = 16
 test_batch = batch_size//4 # test batch size, keep bs small to save memory
-loaderGenerator = MultiTaskRawLoaderGenerator(labels_list, translators_list, k_size)
+loaderGenerator = MultiTaskRawLoaderGenerator(labels_list, translators_list, k_size, num_workers=DATALOADER_WORKERS)
 train_loader = loaderGenerator.dataloader(train_set, batch_size)
 test_loader = loaderGenerator.dataloader(test_set, test_batch, shuffle=False)
 save_log(f'e.txt', ['train_set:', len(train_set), 'test_set:',len(test_set)])
@@ -306,17 +307,17 @@ def train(epoch=1):
             if i_batch % (1000 // batch_size) == 0: # log about each 1000 data
                 test_loss, t_al, t_ph, t_tn = test()
                 # test_loss = 0
-                train_loss = mean(batch_train_loss)
+                batch_train_loss = mean(batch_train_loss)
                 b_al, b_ph, b_tn = mean(b_al), mean(b_ph), mean(b_tn)
 
                 test_loss_q.append(test_loss)
-                train_loss_q.append(train_loss)
+                train_loss_q.append(batch_train_loss)
                 save_log(f'e{epoch}.txt', ['🟣 epoch', epoch, 'data', i_batch*batch_size, 
                     'lr', scheduler.get_last_lr(), 
-                    'train_loss', '{:.3f}'.format(train_loss), 
-                    'al:{:.3f}, ph:{:.3f}, tn{:.3f}'.format(t_al, t_ph, t_tn),
-                    'test_loss', '{:.3f}'.format(test_loss),
-                    'al:{:.3f}, ph:{:.3f}, tn{:.3f}'.format(t_al, t_ph, t_tn),
+                    'train_loss:{:.3f}'.format(batch_train_loss), 
+                    'al:{:.3f}, ph:{:.3f}, tn:{:.3f}'.format(b_al, b_ph, b_tn),
+                    'test_los:{:.3f}'.format(test_loss),
+                    'al:{:.3f}, ph:{:.3f}, tn:{:.3f}'.format(t_al, t_ph, t_tn),
                     ])
                 save_temp(epoch, test_loss) # save temp checkpoint
                 test_decoder(epoch, 5)
