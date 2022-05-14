@@ -7,14 +7,16 @@ from pypinyin import lazy_pinyin, Style
 from os.path import exists
 
 from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
+from utils.helper import get_alphabet_labels, get_phoneme_labels, get_tone_labels, get_pitch_labels
 from utils.dataset import *
 from model.wav2vec2 import Wav2Vec2Builder
 
 # 设置训练的参数
 NUM_EPOCHS = 5
-LOAD_PATH = './checkpoint/wav2vec/model_no.pt' # checkpoint used if exist
-LOG_PATH = './log/n0-' # log file
+LOAD_PATH = './checkpoint/wav2vec/model_temp_multi.pt' # checkpoint used if exist
+LOG_PATH = './log/n1-' # log file
 DATALOADER_WORKERS = 2 # dataloader workers
+LOAD_OPTIMIZER = False # for momentun, Adam, ...
 
 # 使用HPC时，训练过程写入文件监控
 def save_log(file_name, log, mode='a', path = LOG_PATH):
@@ -39,7 +41,6 @@ save_log(f'e.txt', ['HPC Node:', os.uname()[1]])
 mean = lambda x: sum(x)/len(x)
 
 # 训练时用的表，以及基于这些表的解码器
-from utils.helper import get_alphabet_labels, get_phoneme_labels, get_tone_labels, get_pitch_labels
 alphabet_labels = get_alphabet_labels()
 phoneme_labels = get_phoneme_labels()
 tone_labels = get_tone_labels()
@@ -69,7 +70,7 @@ def chinese2phoneme(chinese):
             result += [finals[i]]
     return result[1:]
 def chinese2tone(chinese):
-    pinyin = lazy_pinyin(chinese, strict=True, style=Style.TONE3, neutral_tone_with_five=True, errors=lambda x: u'-')
+    pinyin = lazy_pinyin(chinese, strict=True, style=Style.TONE3, neutral_tone_with_five=True, tone_sandhi=True, errors=lambda x: u'-')
     tone = [i[-1] for i in pinyin]
     return [i for i in  '|'.join(tone)]
 
@@ -174,6 +175,9 @@ for param in model.feature_extractor.parameters():
     param.requires_grad = False
 model = model.to(device)
 params = list(model.encoder.parameters()) + list(model.aux.parameters())
+# for param in model.encoder.parameters():
+#     param.requires_grad = False
+# params = list(model.aux.parameters())
 # optimizer = torch.optim.Adam(params, lr=0.001)
 optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
 ctc_loss = torch.nn.CTCLoss(zero_infinity=True)
@@ -181,21 +185,22 @@ scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 initial_epoch = 0
 
 # 加载记录点
-save_log(f'e.txt', ['Loading Checkpoint ...'])
 def load_checkpoint(path):
     if exists(path):
         print('file',path,'exist, load checkpoint...')
         checkpoint = torch.load(path, map_location=device)
+        if 'model_state_dict' in checkpoint:
+            model.aux[0].load_state_dict(checkpoint['model_state_dict'])
         if 'model_aux_dict' in checkpoint:
             model.aux.load_state_dict(checkpoint['model_aux_dict'])
         if 'model_encoder_dict' in checkpoint:
             model.encoder.load_state_dict(checkpoint['model_encoder_dict'])
-        if 'optimizer_state_dict' in checkpoint:
+        if 'optimizer_state_dict' in checkpoint and LOAD_OPTIMIZER:
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         initial_epoch = checkpoint['epoch']
         loss = checkpoint['loss']
         print(initial_epoch, loss)
-load_checkpoint(LOAD_PATH)
+
 
 # 测试集上打印一些示例，可以用肉眼判断训练情况好坏
 def test_decoder(epoch, k):
@@ -216,7 +221,7 @@ def test_decoder(epoch, k):
                 '\nPhon level:', get_transcript(1, emissions),
                 '\nTone level:', get_transcript(2, emissions),
                 ])
-test_decoder('', 5)
+
 
 # 训练过程中勤快地保存数据，并且每个epoch保存一个单独的数据（不覆盖）
 def dump_model(EPOCH, LOSS, PATH):
@@ -267,10 +272,8 @@ def test():
             tn_losses.append(tn_loss.item())
     return mean(losses), mean(al_losses), mean(ph_losses), mean(tn_losses)
 
-save_log(f'e.txt', ['initial test loss:', test()])
 
-
-save_log(f'e.txt', ['Start training ...'])
+# Training the model
 def train(epoch=1):
     train_loss_q = []
     test_loss_q = []
@@ -321,9 +324,9 @@ def train(epoch=1):
                 train_loss_q.append(batch_train_loss)
                 save_log(f'e{epoch}.txt', ['🟣 epoch', epoch, 'data', i_batch*batch_size, 
                     'lr', scheduler.get_last_lr(), 
-                    'train_loss:{:.3f}'.format(batch_train_loss), 
+                    '[train_loss:{:.3f}]'.format(batch_train_loss), 
                     'al:{:.3f}, ph:{:.3f}, tn:{:.3f}'.format(b_al, b_ph, b_tn),
-                    'test_los:{:.3f}'.format(test_loss),
+                    '[test_los:{:.3f}]'.format(test_loss),
                     'al:{:.3f}, ph:{:.3f}, tn:{:.3f}'.format(t_al, t_ph, t_tn),
                     ])
                 save_temp(epoch, test_loss) # save temp checkpoint
@@ -337,5 +340,10 @@ def train(epoch=1):
         test_decoder(epoch, 10) # run some sample prediction and see the result
 
 if __name__ == '__main__':
+    save_log(f'e.txt', ['Loading Checkpoint ...'])
+    load_checkpoint(LOAD_PATH)
+    test_decoder('', 5)
+    save_log(f'e.txt', ['initial test loss:', test()])
+    save_log(f'e.txt', ['Start training ...'])
     train(NUM_EPOCHS)
 
