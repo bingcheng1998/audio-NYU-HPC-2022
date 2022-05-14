@@ -8,9 +8,15 @@ from os.path import exists
 
 from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
 from utils.dataset import *
-# from utils.helper import get_labels
+from model.wav2vec2 import Wav2Vec2Builder
 
-def save_log(file_name, log, mode='a', path = './log/n0-'):
+# 设置训练的参数
+NUM_EPOCHS = 5
+LOAD_PATH = './checkpoint/wav2vec/model_no.pt' # checkpoint used if exist
+LOG_PATH = './log/n0-'
+
+# 使用HPC时，训练过程写入文件监控
+def save_log(file_name, log, mode='a', path = LOG_PATH):
     with open(path+file_name, mode) as f:
         if mode == 'a':
             f.write('\n')
@@ -22,36 +28,28 @@ def save_log(file_name, log, mode='a', path = './log/n0-'):
             f.write(' '.join(log))
             print(' '.join(log))
 
+# 打印基础信息
 torch.random.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 save_log(f'e.txt', ['torch:', torch.__version__])
 save_log(f'e.txt', ['torchaudio:', torchaudio.__version__])
 save_log(f'e.txt', ['device:', device])
 save_log(f'e.txt', ['HPC Node:', os.uname()[1]])
-
-NUM_EPOCHS = 5
-LOAD_PATH = './checkpoint/wav2vec/model_no.pt' # checkpoint used if exist
-# bundle = torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN
-# wave2vec_model = bundle.get_model()
-# labels = get_labels()
-# k_size = wave2vec_model.feature_extractor.conv_layers[0].conv.kernel_size[0] 
-# kernel size for audio encoder, will be used in audio augmentation
-
 mean = lambda x: sum(x)/len(x)
 
+# 训练时用的表，以及基于这些表的解码器
 from utils.helper import get_alphabet_labels, get_phoneme_labels, get_tone_labels, get_pitch_labels
-
 alphabet_labels = get_alphabet_labels()
 phoneme_labels = get_phoneme_labels()
 tone_labels = get_tone_labels()
 alphabet_look_up = {s: i for i, s in enumerate(alphabet_labels)} # label转数字
 phoneme_look_up = {s: i for i, s in enumerate(phoneme_labels)}
 tone_look_up = {s: i for i, s in enumerate(tone_labels)}
-
 alphabet_decoder = GreedyCTCDecoder(labels=alphabet_labels)
 phoneme_decoder = GreedyCTCDecoder(labels=phoneme_labels)
 tone_decoder = GreedyCTCDecoder(labels=tone_labels)
 
+# 中文转换为这些label
 def chinese2alphabet(chinese):
     pinyin = lazy_pinyin(chinese, strict=True,errors=lambda x: u'-')
     pinyin = [i for i in '|'.join(pinyin)]
@@ -74,12 +72,13 @@ def chinese2tone(chinese):
     tone = [i[-1] for i in pinyin]
     return [i for i in  '|'.join(tone)]
 
+# 综合以上label，转换器，decoder
 labels_list = [alphabet_labels, phoneme_labels, tone_labels]
 translators_list = [chinese2alphabet, chinese2phoneme, chinese2tone]
 decoders = [alphabet_decoder, phoneme_decoder, tone_decoder]
 
+# dataloader
 save_log(f'e.txt', ['Loading Dataset ...'])
-
 class MultiTaskRawLoaderGenerator:
     def __init__(self, 
         labels_list:list, 
@@ -150,8 +149,6 @@ def raw_audio_transform(sample, sample_rate=None):
         return sample
 
 dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
-
-from model.wav2vec2 import Wav2Vec2Builder
 labels_sizes = [len(labels) for labels in labels_list]
 builder = Wav2Vec2Builder(torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN, labels_sizes)
 k_size = builder.kernel_size
@@ -165,21 +162,12 @@ test_loader = loaderGenerator.dataloader(test_set, test_batch, shuffle=False)
 save_log(f'e.txt', ['train_set:', len(train_set), 'test_set:',len(test_set)])
 save_log(f'e.txt', ['train batch_size:', batch_size, ', test batch_size', test_batch])
 
-# decoder = GreedyCTCDecoder(labels=labels)
-
+# 模型初始化
 save_log(f'e.txt', ['Init Model ...'])
-
 from model.wav2vec2 import Wav2Vec2Builder
-
 model = builder.get_model()
 save_log(f'e.txt', ['k_size:', builder.kernel_size])
 
-# for param in model.feature_extractor.parameters():
-#     param.requires_grad = False
-# torch.nn.init.xavier_normal_(model.aux.weight)
-# for param in model.encoder.parameters():
-#     param.requires_grad = True
-# params = list(model.aux.parameters())+list(model.encoder.parameters())
 params = []
 params += list(model.encoder.parameters())
 for i in range(len(model.aux)):
@@ -245,6 +233,9 @@ def save_checkpoint(EPOCH, LOSS):
 def test():
     model.eval()
     losses = []
+    al_losses = []
+    ph_losses = []
+    tn_losses = []
     with torch.no_grad():
         for sample_batched in test_loader:
             # Step 1. Prepare Data
@@ -263,9 +254,12 @@ def test():
             tn_loss = ctc_loss(tn, tn_t, emission_len, tn_l)
             loss = al_loss + ph_loss + tn_loss
             losses.append(loss.item())
-    return mean(losses)
+            al_losses.append(al_loss.item())
+            ph_losses.append(ph_loss.item())
+            tn_losses.append(tn_loss.item())
+    return mean(losses), mean(al_losses), mean(ph_losses), mean(tn_losses)
 
-# save_log(f'e.txt', ['initial test loss:', test()])
+save_log(f'e.txt', ['initial test loss:', test()])
 
 
 save_log(f'e.txt', ['Start training ...'])
@@ -274,7 +268,7 @@ def train(epoch=1):
     test_loss_q = []
     for epoch in range(initial_epoch, epoch):
         
-        batch_train_loss = []
+        batch_train_loss, b_al, b_ph, b_tn = [], [], [], []
         for i_batch, sample_batched in enumerate(train_loader):
             model.train()
             # Step 1. Prepare Data
@@ -305,18 +299,28 @@ def train(epoch=1):
                 exit()
             
             batch_train_loss.append(loss.item())
+            b_al.append(al.item())
+            b_ph.append(ph.item())
+            b_tn.append(tn.item())
 
             if i_batch % (1000 // batch_size) == 0: # log about each 1000 data
-                # test_loss = test()
-                test_loss = 0
+                test_loss, t_al, t_ph, t_tn = test()
+                # test_loss = 0
                 train_loss = mean(batch_train_loss)
+                b_al, b_ph, b_tn = mean(b_al), mean(b_ph), mean(b_tn)
+
                 test_loss_q.append(test_loss)
                 train_loss_q.append(train_loss)
                 save_log(f'e{epoch}.txt', ['🟣 epoch', epoch, 'data', i_batch*batch_size, 
                     'lr', scheduler.get_last_lr(), 
-                    'train_loss', train_loss, 'test_loss', test_loss])
+                    'train_loss', '{:.3f}'.format(train_loss), 
+                    'al:{:.3f}, ph:{:.3f}, tn{:.3f}'.format(t_al, t_ph, t_tn),
+                    'test_loss', '{:.3f}'.format(test_loss),
+                    'al:{:.3f}, ph:{:.3f}, tn{:.3f}'.format(t_al, t_ph, t_tn),
+                    ])
                 save_temp(epoch, test_loss) # save temp checkpoint
                 test_decoder(epoch, 5)
+                batch_train_loss, b_al, b_ph, b_tn = [], [], [], []
             
         # scheduler.step()
         save_checkpoint(epoch, mean(test_loss_q))
