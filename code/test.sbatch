@@ -10,7 +10,8 @@
 
 module purge
 singularity exec --nv \
-    --overlay /scratch/bh2283/code/zh-audio.ext3:ro \
-    --overlay /scratch/bh2283/data/ST-CMDS-20170001_1-OS.sqf:ro \
+    --overlay /scratch/bh2283/code/zh-audio2.ext3:ro \
+    --overlay /scratch/bh2283/data/aidatatang_200zh.sqf:ro \
     /scratch/work/public/singularity/cuda11.3.0-cudnn8-devel-ubuntu20.04.sif \
-    /bin/bash -c "source /ext3/env.sh; python utils/dataset.py"
+    /bin/bash
+    # -c "source /ext3/env.sh; python utils/dataset.py"

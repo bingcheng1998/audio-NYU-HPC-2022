@@ -415,6 +415,88 @@ class CvCorpus8Dataset(SpeechDataset):
     def get_text(self, x): 
         return self.sentence_text[x] if x < len(self) else None
 
+class AiDataTangDataset(SpeechDataset):
+
+    def __init__(self, data_path, sample_rate=16000, transform=None, fast_load=False):
+        super().__init__(data_path, sample_rate, transform)
+        self.fast_load = fast_load
+        transcript_file = data_path+'transcript/aidatatang_200_zh_transcript.txt'
+        self.transcript = self.gen_transcript(transcript_file)
+        self.wav_files = self.get_all_wav_files(data_path, self.transcript)
+        self.dataset_file_num = len(self.wav_files)
+        self.threshold = 120000 # to avoid GPU memory used out
+        self.batch_size = 80 # to avoid GPU memory used out
+        self.split_ratio = [1000, 3]
+
+    def __len__(self):
+        return self.dataset_file_num
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        if idx >= self.dataset_file_num:
+            return {'audio': None, 'text': None}
+        audio_name = self.wav_files[idx]
+        waveform, sample_rate = torchaudio.load(audio_name)
+        waveform = waveform
+        if sample_rate != self.sample_rate:
+            waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
+        dict_id = audio_name.rsplit('/',1)[-1].split('.')[0]
+        audio_content = self.transcript[dict_id]
+        sample = {'audio': waveform, 'text': audio_content}
+        if self.transform:
+            sample = self.transform(sample, self.sample_rate)
+        return sample
+
+    def parse_line(self, line):
+        id, text = line.split(' ', 1)
+        text = ''.join(text.split(' '))
+        return id, text
+
+    def gen_transcript(self, transcript_file):
+        pk = cache_path+'dataset_temp/aidatatang_200_zh_transcript.pickle'
+        if self.fast_load and exists(pk):
+            with open(pk,"rb") as f:
+                return pickle.load(f)
+        transcript = {}
+        with open(transcript_file, 'r') as f:
+            content = f.read()
+            lines = content.split('\n')[:-1]
+            for line in lines:
+                id, text = self.parse_line(line)
+                transcript[id] = text
+        with open(pk,"wb") as f:
+            pickle.dump(transcript, f)
+        return transcript
+
+    def get_all_wav_files(self, path, transcript):
+        pk = cache_path+'dataset_temp/aidatatang_200_zh_all_wav_files.pickle'
+        if self.fast_load and exists(pk):
+            with open(pk,"rb") as f:
+                return pickle.load(f)
+        folders = []
+        train = os.listdir(path+'corpus/train/')
+        folders += [path+'corpus/train/'+i for i in train]
+        dev = os.listdir(path+'corpus/dev/')
+        folders += [path+'corpus/dev/'+i for i in dev]
+        test = os.listdir(path+'corpus/test/')
+        folders += [path+'corpus/test/'+i for i in test]
+        files = []
+        for folder in folders:
+            files += [folder+'/'+i for i in os.listdir(folder) if i[-4:]=='.wav' and i[:-4] in transcript]
+        with open(pk,"wb") as f:
+            pickle.dump(files, f)
+        return files
+    
+    def split(self, split_ratio=None, seed=42):
+        audio_dataset = self
+        size = len(audio_dataset)
+        my_split_ratio = self.split_ratio if split_ratio is None else split_ratio
+        lengths = [(i*size)//sum(my_split_ratio) for i in my_split_ratio]
+        lengths[-1] = size - sum(lengths[:-1])
+        split_dataset = random_split(audio_dataset, lengths, generator=torch.Generator().manual_seed(seed))
+        return split_dataset
+
 class MelLoaderGenerator:
     def __init__(self, 
         labels, k_size=0, 
@@ -520,7 +602,7 @@ class RawLoaderGenerator:
     def batch_filter(self, batch:list):
         # remove all audio with tag if audio length > threshold
         for i in range(len(batch)-1, -1, -1):
-            if batch[i]['audio'].shape[-1] > self.threshold: # 256 is the hop_length of fft
+            if batch[i]['audio'].shape[-1] > self.threshold:
                 del batch[i]
         return batch
 
@@ -548,7 +630,6 @@ class RawLoaderGenerator:
             torch.cat(
             (torch.tensor(l), torch.zeros([max_target_length-len(l)], dtype=torch.int)), -1).unsqueeze(0) 
             for l in target_list], 0)
-        device = self.device
         return {'audio': audio_list, 'audio_len': audio_length, 
                 'target': target_list, 'target_len': target_length}
 
@@ -596,10 +677,12 @@ if __name__ == '__main__':
     # dataset = SpeechOceanDataset('/scratch/bh2283/data/zhspeechocean/', transform=raw_audio_transform)
     # dataset = STCMDSDataset('/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform)
     # dataset = CvCorpus8Dataset('/scratch/bh2283/data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=raw_audio_transform)
-    dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
+    # dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
     # dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
     # dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=ai_shell_3_transform)
     # dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, person_id='SSB0011')
+    # dataset = AiDataTangDataset('/scratch/bh2283/data/aidatatang_200zh/', transform=raw_audio_transform)
+    dataset = AiDataTangDataset('/aidatatang_200zh/', transform=raw_audio_transform)
     from pypinyin import lazy_pinyin
     from helper import get_alphabet_labels as get_labels
     labels = get_labels()+('1','2','3','4','5',' ','.')

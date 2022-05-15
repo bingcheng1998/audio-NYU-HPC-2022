@@ -4,6 +4,7 @@ import torch
 import torchaudio
 from pypinyin import lazy_pinyin, Style
 from os.path import exists
+from string import ascii_uppercase, ascii_lowercase
 
 from utils.textDecoder import GreedyCTCDecoder, NaiveDecoder
 from utils.helper import get_alphabet_labels, get_phoneme_labels, get_tone_labels, get_pitch_labels
@@ -13,7 +14,7 @@ from model.wav2vec2 import Wav2Vec2Builder
 # 设置训练的参数
 NUM_EPOCHS = 20
 LOAD_PATH = './checkpoint/wav2vec/mul-ST-CMDS.pt' # checkpoint used if exist
-LOG_PATH = './log/n3-' # log file
+LOG_PATH = './log/n4-' # log file
 DATALOADER_WORKERS = 2 # dataloader workers
 LOAD_OPTIMIZER = False # for momentun, Adam, ...
 LOAD_INITIAL_EPOCH = False
@@ -94,6 +95,8 @@ class MultiTaskRawLoaderGenerator:
         self.look_up_list = [{s: i for i, s in enumerate(labels)} for labels in labels_list]
         self.device = device
         self.num_workers = num_workers
+        self.translators_list = translators_list
+        self.alphabet_set = ascii_uppercase + ascii_lowercase
 
     def label2id(self, label_set:int, str):
         return [self.look_up_list[label_set][i] for i in str]
@@ -101,10 +104,17 @@ class MultiTaskRawLoaderGenerator:
     def id2label(self, label_set:int, idcs):
         return ''.join([self.labels_list[label_set][i] for i in idcs])
 
+    def contains_english(self, chinese):
+        for i in range(len(chinese)):
+            if chinese[i] in self.alphabet_set:
+                return False
+        return True
+
     def batch_filter(self, batch:list):
         # remove all audio with tag if audio length > threshold
         for i in range(len(batch)-1, -1, -1):
-            if batch[i]['audio'].shape[-1] > self.threshold: # 256 is the hop_length of fft
+            if batch[i]['audio'].shape[-1] > self.threshold or\
+                self.contains_english(batch[i]['chinese']): # remove all english 
                 del batch[i]
         return batch
 
@@ -120,11 +130,10 @@ class MultiTaskRawLoaderGenerator:
             torch.cat(
             (audio, torch.zeros(max_audio_length-audio.shape[-1]).unsqueeze(0)), -1)
             for audio in audio_list], 0)
-
         all_target_list = []
         all_target_length = []
         for label_set in range(len(self.labels_list)):
-            target_list = [self.label2id(label_set, translators_list[label_set](item['chinese'])) for item in batch]
+            target_list = [self.label2id(label_set, self.translators_list[label_set](item['chinese'])) for item in batch]
             target_length = [len(l) for l in target_list]
             target_length = torch.tensor(target_length)
             max_target_length = torch.max(target_length)
@@ -152,7 +161,8 @@ def raw_audio_transform(sample, sample_rate=None):
 
 # dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
 # dataset = STCMDSDataset('/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform) # singularity usage only
-dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
+# dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
+dataset = AiDataTangDataset('/aidatatang_200zh/', transform=raw_audio_transform)
 labels_sizes = [len(labels) for labels in labels_list]
 builder = Wav2Vec2Builder(torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN, labels_sizes)
 k_size = builder.kernel_size
