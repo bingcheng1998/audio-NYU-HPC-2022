@@ -12,8 +12,8 @@ from model.wav2vec2 import Wav2Vec2Builder
 
 # 设置训练的参数
 NUM_EPOCHS = 20
-LOAD_PATH = './checkpoint/wav2vec/mulPrimeWords.pt' # checkpoint used if exist
-LOG_PATH = './log/n2-' # log file
+LOAD_PATH = './checkpoint/wav2vec/mul-ST-CMDS.pt' # checkpoint used if exist
+LOG_PATH = './log/n3-' # log file
 DATALOADER_WORKERS = 2 # dataloader workers
 LOAD_OPTIMIZER = False # for momentun, Adam, ...
 LOAD_INITIAL_EPOCH = False
@@ -151,7 +151,8 @@ def raw_audio_transform(sample, sample_rate=None):
         return sample
 
 # dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
-dataset = STCMDSDataset('/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform) # singularity usage only
+# dataset = STCMDSDataset('/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform) # singularity usage only
+dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
 labels_sizes = [len(labels) for labels in labels_list]
 builder = Wav2Vec2Builder(torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN, labels_sizes)
 k_size = builder.kernel_size
