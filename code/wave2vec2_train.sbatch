@@ -4,7 +4,9 @@
 #SBATCH --cpus-per-task=1                # uses 1 compute core per task
 #SBATCH --time=23:00:00
 #SBATCH --mem=8GB                        # CPU memory
-#SBATCH --job-name=python-train-audio-zh
+#SBATCH --mail-type=END
+#SBATCH --mail-user=bh2283@nyu.edu
+#SBATCH --job-name=wav2vec-zh-audio
 #SBATCH --output=log/wav2vec-zh-%j.out
 #SBATCH --gres=gpu:rtx8000:1
 

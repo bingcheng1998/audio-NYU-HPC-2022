@@ -1,7 +1,6 @@
 import os
-from statistics import mean
+# from statistics import mean
 import torch
-import torch.nn as nn
 import torchaudio
 from pypinyin import lazy_pinyin, Style
 from os.path import exists
@@ -152,14 +151,14 @@ def raw_audio_transform(sample, sample_rate=None):
         return sample
 
 # dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
-dataset = STCMDSDataset('/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform)
+dataset = STCMDSDataset('/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform) # singularity usage only
 labels_sizes = [len(labels) for labels in labels_list]
 builder = Wav2Vec2Builder(torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN, labels_sizes)
 k_size = builder.kernel_size
 train_set, test_set = dataset.split()
-batch_size = int(train_set.dataset.batch_size*0.9) # tain batch size
+batch_size = int(train_set.dataset.batch_size*0.8) # tain batch size
 # batch_size = 16
-test_batch = int(batch_size/4) # test batch size, keep bs small to save memory
+test_batch = int(batch_size/2) # test batch size, keep bs small to save memory
 loaderGenerator = MultiTaskRawLoaderGenerator(labels_list, translators_list, k_size, num_workers=DATALOADER_WORKERS)
 train_loader = loaderGenerator.dataloader(train_set, batch_size)
 test_loader = loaderGenerator.dataloader(test_set, test_batch, shuffle=False)
@@ -177,13 +176,10 @@ for param in model.feature_extractor.parameters():
     param.requires_grad = False
 model = model.to(device)
 params = list(model.encoder.parameters()) + list(model.aux.parameters())
-# for param in model.encoder.parameters():
-#     param.requires_grad = False
-# params = list(model.aux.parameters())
-optimizer = torch.optim.Adam(params, lr=0.001)
-# optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
+# optimizer = torch.optim.Adam(params, lr=0.001)
+optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.8)
 ctc_loss = torch.nn.CTCLoss(zero_infinity=True)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=6, gamma=0.5)
 initial_epoch = 0
 
 # 加载记录点
@@ -191,15 +187,13 @@ def load_checkpoint(path):
     if exists(path):
         print('file',path,'exist, load checkpoint...')
         checkpoint = torch.load(path, map_location=device)
-        # if 'model_state_dict' in checkpoint:
-        #     model.aux[0].load_state_dict(checkpoint['model_state_dict'])
         if 'model_aux_dict' in checkpoint:
             model.aux.load_state_dict(checkpoint['model_aux_dict'])
         if 'model_encoder_dict' in checkpoint:
             model.encoder.load_state_dict(checkpoint['model_encoder_dict'])
         if 'optimizer_state_dict' in checkpoint and LOAD_OPTIMIZER:
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        if LOAD_INITIAL_EPOCH: initial_epoch = checkpoint['epoch']
+        initial_epoch = checkpoint['epoch'] if LOAD_INITIAL_EPOCH else 0
         loss = checkpoint['loss']
         print(f'initial_epoch: {initial_epoch}, loss: {loss}')
 
@@ -215,9 +209,6 @@ def test_decoder(epoch, k):
             save_log(f'e{epoch}.txt', ['Chinese:', sample['chinese']])
             waveform = sample['audio']
             emissions, _ = model(waveform.to(device))
-            # emissions = torch.log_softmax(emissions[0], dim=-1)
-            # emission = emissions.cpu().detach()
-            # transcript = decoders[0](emission[0])
             save_log(f'e{epoch}.txt', [
                 'Char level:', get_transcript(0, emissions),
                 '\nPhon level:', get_transcript(1, emissions),
@@ -336,7 +327,7 @@ def train(epoch=1):
             if i_batch % (10000 // batch_size) == 0:
                 test_decoder(epoch, 2)
             
-        # scheduler.step()
+        scheduler.step()
         save_checkpoint(epoch, mean(test_loss_q))
         save_log(f'e{epoch}.txt', ['============= Final Test ============='])
         test_decoder(epoch, 10) # run some sample prediction and see the result
