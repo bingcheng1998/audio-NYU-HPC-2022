@@ -586,15 +586,22 @@ if __name__ == '__main__':
         sample['text'] = pinyin+' .'
         sample['chinese'] = chinese
         return sample
+
+    def raw_audio_transform(sample, sample_rate=None):
+        audio = sample['audio']
+        audio = audio / torch.abs(audio).max()*0.15
+        sample['audio'] = audio
+        sample['chinese'] = sample['text']
+        return sample
     # dataset = SpeechOceanDataset('/scratch/bh2283/data/zhspeechocean/', transform=raw_audio_transform)
-    # dataset = STCMDSDataset('/scratch/bh2283/data/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform)
+    dataset = STCMDSDataset('/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform)
     # dataset = CvCorpus8Dataset('/scratch/bh2283/data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=raw_audio_transform)
     # dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
     # dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
-    dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=ai_shell_3_transform)
+    # dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=ai_shell_3_transform)
     # dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, person_id='SSB0011')
     from pypinyin import lazy_pinyin
-    from helper import get_labels
+    from helper import get_alphabet_labels as get_labels
     labels = get_labels()+('1','2','3','4','5',' ','.')
     loaderGenerator = MelLoaderGenerator(labels, k_size=256)
     # loaderGenerator = RawLoaderGenerator(labels, k_size=5)
@@ -602,10 +609,10 @@ if __name__ == '__main__':
     train_loader = loaderGenerator.dataloader(train_set, batch_size=8)
     print('train_set:', len(train_set), 'test_set:',len(test_set))
     steps = 10
-    for i_batch, sample_batched in enumerate(train_loader):
-        if steps <= 0:
-            break
-        print(sample_batched['mel'].shape, sample_batched['target'].shape)
-        print(sample_batched['mel_len'], sample_batched['target_len'])
-        print(sample_batched['speaker'])
-        steps -= 1
+    # for i_batch, sample_batched in enumerate(train_loader):
+    #     if steps <= 0:
+    #         break
+    #     print(sample_batched['mel'].shape, sample_batched['target'].shape)
+    #     print(sample_batched['mel_len'], sample_batched['target_len'])
+    #     print(sample_batched['speaker'])
+    #     steps -= 1

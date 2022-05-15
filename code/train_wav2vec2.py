@@ -12,11 +12,12 @@ from utils.dataset import *
 from model.wav2vec2 import Wav2Vec2Builder
 
 # 设置训练的参数
-NUM_EPOCHS = 5
-LOAD_PATH = './checkpoint/wav2vec/model_temp_multi.pt' # checkpoint used if exist
-LOG_PATH = './log/n1-' # log file
+NUM_EPOCHS = 20
+LOAD_PATH = './checkpoint/wav2vec/mulPrimeWords.pt' # checkpoint used if exist
+LOG_PATH = './log/n2-' # log file
 DATALOADER_WORKERS = 2 # dataloader workers
 LOAD_OPTIMIZER = False # for momentun, Adam, ...
+LOAD_INITIAL_EPOCH = False
 
 # 使用HPC时，训练过程写入文件监控
 def save_log(file_name, log, mode='a', path = LOG_PATH):
@@ -150,7 +151,8 @@ def raw_audio_transform(sample, sample_rate=None):
         sample['chinese'] = sample['text']
         return sample
 
-dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
+# dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
+dataset = STCMDSDataset('/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform)
 labels_sizes = [len(labels) for labels in labels_list]
 builder = Wav2Vec2Builder(torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN, labels_sizes)
 k_size = builder.kernel_size
@@ -178,8 +180,8 @@ params = list(model.encoder.parameters()) + list(model.aux.parameters())
 # for param in model.encoder.parameters():
 #     param.requires_grad = False
 # params = list(model.aux.parameters())
-# optimizer = torch.optim.Adam(params, lr=0.001)
-optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
+optimizer = torch.optim.Adam(params, lr=0.001)
+# optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
 ctc_loss = torch.nn.CTCLoss(zero_infinity=True)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 initial_epoch = 0
@@ -189,17 +191,17 @@ def load_checkpoint(path):
     if exists(path):
         print('file',path,'exist, load checkpoint...')
         checkpoint = torch.load(path, map_location=device)
-        if 'model_state_dict' in checkpoint:
-            model.aux[0].load_state_dict(checkpoint['model_state_dict'])
+        # if 'model_state_dict' in checkpoint:
+        #     model.aux[0].load_state_dict(checkpoint['model_state_dict'])
         if 'model_aux_dict' in checkpoint:
             model.aux.load_state_dict(checkpoint['model_aux_dict'])
         if 'model_encoder_dict' in checkpoint:
             model.encoder.load_state_dict(checkpoint['model_encoder_dict'])
         if 'optimizer_state_dict' in checkpoint and LOAD_OPTIMIZER:
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        initial_epoch = checkpoint['epoch']
+        if LOAD_INITIAL_EPOCH: initial_epoch = checkpoint['epoch']
         loss = checkpoint['loss']
-        print(initial_epoch, loss)
+        print(f'initial_epoch: {initial_epoch}, loss: {loss}')
 
 
 # 测试集上打印一些示例，可以用肉眼判断训练情况好坏
