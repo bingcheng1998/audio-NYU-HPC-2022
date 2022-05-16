@@ -48,11 +48,12 @@ class Wave2vec2(torch.nn.Module):
         self.encoder = encoder
         self.aux = aux
         self.f_mask = FrequencyMasking(freq_mask_param=15)
-        self.t_mask = TimeMasking(time_mask_param=25)
+        self.t_mask = TimeMasking(time_mask_param=15)
 
     def forward(self, x, lengths=None):
         x, lengths = self.feature_extractor(x, lengths)
         x = self.t_mask(x) # time mask
+        x = self.t_mask(x) # 2nd time mask
         x = self.f_mask(x) # feature mask
         x = self.encoder(x, lengths)
         output = []
