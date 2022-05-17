@@ -686,16 +686,15 @@ if __name__ == '__main__':
     from pypinyin import lazy_pinyin
     from helper import get_alphabet_labels as get_labels
     labels = get_labels()+('1','2','3','4','5',' ','.')
-    loaderGenerator = MelLoaderGenerator(labels, k_size=256)
-    # loaderGenerator = RawLoaderGenerator(labels, k_size=5)
+    # loaderGenerator = MelLoaderGenerator(labels, k_size=256)
+    loaderGenerator = RawLoaderGenerator(labels, k_size=5)
     train_set, test_set = dataset.split()
     train_loader = loaderGenerator.dataloader(train_set, batch_size=8)
     print('train_set:', len(train_set), 'test_set:',len(test_set))
     steps = 10
-    # for i_batch, sample_batched in enumerate(train_loader):
-    #     if steps <= 0:
-    #         break
-    #     print(sample_batched['mel'].shape, sample_batched['target'].shape)
-    #     print(sample_batched['mel_len'], sample_batched['target_len'])
-    #     print(sample_batched['speaker'])
-    #     steps -= 1
+    for i_batch, sample_batched in enumerate(train_loader):
+        if steps <= 0:
+            break
+        print(sample_batched['audio'].shape, sample_batched['target'].shape)
+        print(sample_batched['audio_len'], sample_batched['target_len'])
+        steps -= 1

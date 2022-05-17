@@ -13,8 +13,8 @@ from model.wav2vec2 import Wav2Vec2Builder
 
 # 设置训练的参数
 NUM_EPOCHS = 20
-LOAD_PATH = './checkpoint/wav2vec/mul-ST-CMDS.pt' # checkpoint used if exist
-LOG_PATH = './log/n4-' # log file
+LOAD_PATH = './checkpoint/wav2vec/data_aishell.pt' # checkpoint used if exist
+LOG_PATH = './log/n5-' # log file
 DATALOADER_WORKERS = 2 # dataloader workers
 LOAD_OPTIMIZER = False # for momentun, Adam, ...
 LOAD_INITIAL_EPOCH = False
@@ -107,14 +107,14 @@ class MultiTaskRawLoaderGenerator:
     def contains_english(self, chinese):
         for i in range(len(chinese)):
             if chinese[i] in self.alphabet_set:
-                return False
-        return True
+                return True
+        return False
 
     def batch_filter(self, batch:list):
         # remove all audio with tag if audio length > threshold
         for i in range(len(batch)-1, -1, -1):
-            if batch[i]['audio'].shape[-1] > self.threshold or\
-                self.contains_english(batch[i]['chinese']): # remove all english 
+            if batch[i]['audio'].shape[-1] > self.threshold\
+                or self.contains_english(batch[i]['chinese']): # remove all english 
                 del batch[i]
         return batch
 
