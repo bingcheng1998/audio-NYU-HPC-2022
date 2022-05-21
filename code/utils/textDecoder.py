@@ -17,7 +17,7 @@ class GreedyCTCDecoder(torch.nn.Module):
         indices = torch.argmax(emission, dim=-1)  # [num_seq,]
         indices = torch.unique_consecutive(indices, dim=-1)
         indices = [i for i in indices if i != self.blank]
-        return "".join([self.labels[i] for i in indices])
+        return [self.labels[i] for i in indices]
 
 class NaiveDecoder(torch.nn.Module):
     def __init__(self, labels, blank=0):

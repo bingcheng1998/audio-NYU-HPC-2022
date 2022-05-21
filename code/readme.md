@@ -49,3 +49,4 @@
 
 mul-ST-CMDS.pt
 data_aishell.pt
+mul-aidatatang.pt

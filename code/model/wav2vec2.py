@@ -16,6 +16,7 @@ class Wav2Vec2Builder:
         self.in_features = base_model.encoder.transformer.layers[-1].final_layer_norm.normalized_shape[0]
         self._set_aux(out_sizes)
         self.kernel_size = base_model.feature_extractor.conv_layers[0].conv.kernel_size[0]
+        self.sample_rate = bundle.sample_rate
     
     def _set_aux(self, out_sizes: list):
         self.aux = []
