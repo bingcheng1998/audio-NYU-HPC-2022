@@ -679,7 +679,7 @@ if __name__ == '__main__':
     # dataset = CvCorpus8Dataset('/scratch/bh2283/data/cv-corpus-8.0-2022-01-19/zh-CN/', transform=raw_audio_transform)
     # dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
     # dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
-    # dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=ai_shell_3_transform)
+    dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=ai_shell_3_transform)
     # dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, person_id='SSB0011')
     # dataset = AiDataTangDataset('/scratch/bh2283/data/aidatatang_200zh/', transform=raw_audio_transform)
     dataset = AiDataTangDataset('/aidatatang_200zh/', transform=raw_audio_transform)

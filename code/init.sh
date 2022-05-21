@@ -11,6 +11,7 @@ singularity exec \
 --overlay /scratch/bh2283/senv/torchaudio-python3.10.ext3:ro \
 --overlay /scratch/bh2283/data/data_aishell3.sqf:ro \
 --overlay /scratch/bh2283/data/aidatatang_200zh.sqf:ro \
+--overlay /scratch/bh2283/data/ST-CMDS-20170001_1-OS.sqf:ro \
  /scratch/work/public/singularity/cuda11.3.0-cudnn8-devel-ubuntu20.04.sif \
  -c "source /ext3/env.sh; python train_batch.py"
 

@@ -13,8 +13,8 @@ from model.wav2vec2 import Wav2Vec2Builder
 
 # 设置训练的参数
 NUM_EPOCHS = 20
-LOAD_PATH = './checkpoint/wav2vec/data_aishell.pt' # checkpoint used if exist
-LOG_PATH = './log/n5-' # log file
+LOAD_PATH = './checkpoint/wav2vec/mul-aidatatang.pt' # checkpoint used if exist
+LOG_PATH = './log/n6-' # log file
 DATALOADER_WORKERS = 2 # dataloader workers
 LOAD_OPTIMIZER = False # for momentun, Adam, ...
 LOAD_INITIAL_EPOCH = False
@@ -148,7 +148,13 @@ class MultiTaskRawLoaderGenerator:
 
     def dataloader(self, audioDataset, batch_size, shuffle=True):
         # k_size is the kernel size for the encoder, for data augmentation
-        self.threshold = audioDataset.dataset.threshold
+        # self.threshold = audioDataset.dataset.threshold
+        def max_threshold_in_concat_set(concat_set):
+            max_threshold = 0
+            for dataset in concat_set.datasets:
+                max_threshold = max(dataset.dataset.threshold, max_threshold)
+            return max_threshold
+        self.threshold = max_threshold_in_concat_set(audioDataset)
         return DataLoader(audioDataset, batch_size,
                             shuffle, num_workers=self.num_workers, collate_fn=self.collate_wrapper)
 
@@ -159,17 +165,41 @@ def raw_audio_transform(sample, sample_rate=None):
         sample['chinese'] = sample['text']
         return sample
 
-# dataset = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
-# dataset = STCMDSDataset('/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform) # singularity usage only
-# dataset = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
-dataset = AiDataTangDataset('/aidatatang_200zh/', transform=raw_audio_transform)
+def ai_shell_3_transform(sample, sample_rate=None):
+        audio = sample['audio']
+        audio = audio / torch.abs(audio).max()*0.15
+        sample['audio'] = audio
+        text = sample['text']
+        text = text.split(' ')
+        chinese = [text[i] for i in range(len(text)) if i%2==0]
+        sample['chinese'] = ''.join(chinese)
+        return sample
+
+dataset1 = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
+dataset2 = STCMDSDataset('/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform) # singularity usage only
+dataset3 = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
+dataset4 = AiDataTangDataset('/aidatatang_200zh/', transform=raw_audio_transform) # singularity usage only
+dataset5 = AiShell3Dataset('/data_aishell3/train/', transform=ai_shell_3_transform) # singularity usage only
+dataset6 = SpeechOceanDataset('/scratch/bh2283/data/zhspeechocean/', transform=raw_audio_transform)
+datasets = [dataset1, dataset2, dataset3, dataset4, dataset5, dataset6]
+
+train_sets = []
+test_sets = []
+for dataset in datasets:
+    train_set, test_set = dataset.split()
+    train_sets.append(train_set)
+    test_sets.append(test_set)
+
+train_set = torch.utils.data.ConcatDataset(train_sets)
+test_set = torch.utils.data.ConcatDataset(test_sets)
+
 labels_sizes = [len(labels) for labels in labels_list]
 builder = Wav2Vec2Builder(torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN, labels_sizes)
 k_size = builder.kernel_size
-train_set, test_set = dataset.split()
-batch_size = int(train_set.dataset.batch_size*0.8) # tain batch size
-# batch_size = 16
-test_batch = int(batch_size/2) # test batch size, keep bs small to save memory
+
+# batch_size = int(train_set.dataset.batch_size*0.8) # tain batch size
+batch_size = 16
+test_batch = batch_size # test batch size, keep bs small to save memory
 loaderGenerator = MultiTaskRawLoaderGenerator(labels_list, translators_list, k_size, num_workers=DATALOADER_WORKERS)
 train_loader = loaderGenerator.dataloader(train_set, batch_size)
 test_loader = loaderGenerator.dataloader(test_set, test_batch, shuffle=False)
@@ -221,9 +251,9 @@ def test_decoder(epoch, k):
             waveform = sample['audio']
             emissions, _ = model(waveform.to(device))
             save_log(f'e{epoch}.txt', [
-                'Char level:', get_transcript(0, emissions),
-                '\nPhon level:', get_transcript(1, emissions),
-                '\nTone level:', get_transcript(2, emissions),
+                'Char level:', ''.join(get_transcript(0, emissions)),
+                '\nPhon level:', ''.join(get_transcript(1, emissions)),
+                '\nTone level:', ''.join(get_transcript(2, emissions)),
                 ])
 
 
@@ -318,7 +348,7 @@ def train(epoch=1):
             b_ph.append(ph_loss.item())
             b_tn.append(tn_loss.item())
 
-            if i_batch % (1000 // batch_size) == 0: # log about each 1000 data
+            if i_batch % (10000 // batch_size) == 0: # log about each 1000 data
                 test_loss, t_al, t_ph, t_tn = test()
                 # test_loss = 0
                 batch_train_loss = mean(batch_train_loss)
@@ -335,8 +365,8 @@ def train(epoch=1):
                     ])
                 save_temp(epoch, test_loss) # save temp checkpoint
                 batch_train_loss, b_al, b_ph, b_tn = [], [], [], []
-            if i_batch % (10000 // batch_size) == 0:
-                test_decoder(epoch, 2)
+            if i_batch % (50000 // batch_size) == 0:
+                test_decoder(epoch, 10)
             
         scheduler.step()
         save_checkpoint(epoch, mean(test_loss_q))
