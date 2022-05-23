@@ -13,8 +13,8 @@ from model.wav2vec2 import Wav2Vec2Builder
 
 # 设置训练的参数
 NUM_EPOCHS = 20
-LOAD_PATH = './checkpoint/wav2vec/mul-aidatatang.pt' # checkpoint used if exist
-LOG_PATH = './log/n6-' # log file
+LOAD_PATH = './checkpoint/wav2vec/mul_all.pt' # checkpoint used if exist
+LOG_PATH = './log/n1-' # log file
 DATALOADER_WORKERS = 2 # dataloader workers
 LOAD_OPTIMIZER = False # for momentun, Adam, ...
 LOAD_INITIAL_EPOCH = False
@@ -198,7 +198,7 @@ builder = Wav2Vec2Builder(torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN, labels
 k_size = builder.kernel_size
 
 # batch_size = int(train_set.dataset.batch_size*0.8) # tain batch size
-batch_size = 16
+batch_size = 24
 test_batch = batch_size # test batch size, keep bs small to save memory
 loaderGenerator = MultiTaskRawLoaderGenerator(labels_list, translators_list, k_size, num_workers=DATALOADER_WORKERS)
 train_loader = loaderGenerator.dataloader(train_set, batch_size)
@@ -217,7 +217,7 @@ for param in model.feature_extractor.parameters():
     param.requires_grad = False
 model = model.to(device)
 params = list(model.encoder.parameters()) + list(model.aux.parameters())
-# optimizer = torch.optim.Adam(params, lr=0.001)
+# optimizer = torch.optim.Adam(params, lr=0.00001)
 optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.8)
 ctc_loss = torch.nn.CTCLoss(zero_infinity=True)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=6, gamma=0.5)
@@ -244,6 +244,7 @@ def test_decoder(epoch, k):
     model.eval()
     with torch.no_grad():
         get_transcript = lambda x, emissions: decoders[x](torch.log_softmax(emissions[x][0], dim=-1).cpu().detach())
+        get_naive_char = lambda x, emissions: NaiveDecoder(labels=alphabet_labels)(torch.log_softmax(emissions[x][0], dim=-1).cpu().detach())
         for i in range(k):
             sample = test_set[i]
             print(i, sample['audio'].shape)
@@ -254,6 +255,7 @@ def test_decoder(epoch, k):
                 'Char level:', ''.join(get_transcript(0, emissions)),
                 '\nPhon level:', ''.join(get_transcript(1, emissions)),
                 '\nTone level:', ''.join(get_transcript(2, emissions)),
+                '\nC-Nv level:', get_naive_char(0, emissions),
                 ])
 
 
@@ -306,14 +308,32 @@ def test():
             tn_losses.append(tn_loss.item())
     return mean(losses), mean(al_losses), mean(ph_losses), mean(tn_losses)
 
+def blank_loss(emission, emission_len, blank_id=0, margin=0):
+    # input emission with shape [time, bs, class]
+    # input emission_len with shape [bs]
+    blank_emission_p = torch.exp(emission[:, :, blank_id]) # probability of blank
+    blank_emission_p = torch.relu(blank_emission_p - margin) # dismiss if less than margin
+    mask = torch.arange(max(emission_len))[:, None].to(device) < emission_len[None, :]
+    # print(blank_emission_p)
+    # print(mask)
+    blank_emission_p_masked = blank_emission_p * mask # apply mask
+    # print(blank_emission_p_masked)
+    mean_axis = torch.sum(blank_emission_p_masked, dim=0)/emission_len # mean blank p in axis
+    # print(mean_axis)
+    return torch.mean(mean_axis)
 
 # Training the model
 def train(epoch=1):
     train_loss_q = []
     test_loss_q = []
+
+    al_margin = 1.0/len(alphabet_labels)
+    ph_margin = 1.0/len(phoneme_labels)
+    tn_margin = 1.0/len(tone_labels)
+    
     for epoch in range(initial_epoch, epoch):
         
-        batch_train_loss, b_al, b_ph, b_tn = [], [], [], []
+        batch_train_loss, b_al, b_ph, b_tn, b_blank = [], [], [], [], []
         for i_batch, sample_batched in enumerate(train_loader):
             model.train()
             # Step 1. Prepare Data
@@ -332,11 +352,19 @@ def train(epoch=1):
             ph_loss = ctc_loss(ph, ph_t, emission_len, ph_l)
             tn_loss = ctc_loss(tn, tn_t, emission_len, tn_l)
 
+            b_loss = blank_loss(al, emission_len, margin=al_margin) + blank_loss(ph, emission_len, margin=ph_margin) + blank_loss(tn, emission_len, margin=tn_margin)
+            splite_loss = blank_loss(al, emission_len, 1, al_margin) + blank_loss(ph, emission_len, 1, ph_margin) + blank_loss(tn, emission_len, 1, tn_margin)
+            b_loss = b_loss * 0.5
+            splite_loss = splite_loss * 0.5
+            
             # Step 3. Run our backward pass
             optimizer.zero_grad()
-            loss = al_loss + ph_loss + tn_loss
+            loss = al_loss + ph_loss + tn_loss + b_loss + splite_loss
             loss.backward()
             optimizer.step()
+
+            # print(al_loss.item(), ph_loss.item(), tn_loss.item(), b_loss.item())
+            # exit()
 
 
             if loss.item()!=loss.item(): # if loss == NaN, break
@@ -347,26 +375,27 @@ def train(epoch=1):
             b_al.append(al_loss.item())
             b_ph.append(ph_loss.item())
             b_tn.append(tn_loss.item())
+            b_blank.append(b_loss.item())
 
-            if i_batch % (10000 // batch_size) == 0: # log about each 1000 data
+            if i_batch % (5000 // batch_size) == 0: # log about each 1000 data
                 test_loss, t_al, t_ph, t_tn = test()
                 # test_loss = 0
                 batch_train_loss = mean(batch_train_loss)
-                b_al, b_ph, b_tn = mean(b_al), mean(b_ph), mean(b_tn)
+                b_al, b_ph, b_tn, b_blank = mean(b_al), mean(b_ph), mean(b_tn), mean(b_blank)
 
                 test_loss_q.append(test_loss)
                 train_loss_q.append(batch_train_loss)
                 save_log(f'e{epoch}.txt', ['🟣 epoch', epoch, 'data', i_batch*batch_size, 
                     'lr', scheduler.get_last_lr(), 
                     '[train_loss:{:.3f}]'.format(batch_train_loss), 
-                    'al:{:.3f}, ph:{:.3f}, tn:{:.3f}'.format(b_al, b_ph, b_tn),
+                    'al:{:.3f}, ph:{:.3f}, tn:{:.3f}, blank:{:.3f}'.format(b_al, b_ph, b_tn, b_blank),
                     '[test_los:{:.3f}]'.format(test_loss),
                     'al:{:.3f}, ph:{:.3f}, tn:{:.3f}'.format(t_al, t_ph, t_tn),
                     ])
                 save_temp(epoch, test_loss) # save temp checkpoint
-                batch_train_loss, b_al, b_ph, b_tn = [], [], [], []
-            if i_batch % (50000 // batch_size) == 0:
-                test_decoder(epoch, 10)
+                batch_train_loss, b_al, b_ph, b_tn, b_blank = [], [], [], [], []
+            if i_batch % (40000 // batch_size) == 0:
+                test_decoder(epoch, 2)
             
         scheduler.step()
         save_checkpoint(epoch, mean(test_loss_q))
@@ -376,7 +405,7 @@ def train(epoch=1):
 if __name__ == '__main__':
     save_log(f'e.txt', ['Loading Checkpoint ...'])
     load_checkpoint(LOAD_PATH)
-    test_decoder('', 5)
+    test_decoder('', 2)
     save_log(f'e.txt', ['initial test loss:', test()])
     save_log(f'e.txt', ['Start training ...'])
     train(NUM_EPOCHS)
