@@ -13,8 +13,8 @@ from model.wav2vec2 import Wav2Vec2Builder
 
 # 设置训练的参数
 NUM_EPOCHS = 20
-LOAD_PATH = './checkpoint/wav2vec/mul_all.pt' # checkpoint used if exist
-LOG_PATH = './log/n1-' # log file
+LOAD_PATH = './checkpoint/wav2vec/splt2.pt' # checkpoint used if exist
+LOG_PATH = './log/n5-' # log file
 DATALOADER_WORKERS = 2 # dataloader workers
 LOAD_OPTIMIZER = False # for momentun, Adam, ...
 LOAD_INITIAL_EPOCH = False
@@ -56,7 +56,7 @@ tone_decoder = GreedyCTCDecoder(labels=tone_labels)
 def chinese2alphabet(chinese):
     pinyin = lazy_pinyin(chinese, strict=True,errors=lambda x: u'-')
     pinyin = [i for i in '|'.join(pinyin)]
-    return pinyin
+    return ['|']+pinyin+['|']
 def chinese2phoneme(chinese):
     intitials = lazy_pinyin(chinese, strict=False, style=Style.INITIALS, errors=lambda x: u'-')
     finals = lazy_pinyin(chinese, strict=True, style=Style.FINALS, errors=lambda x: u'-')
@@ -327,7 +327,7 @@ def train(epoch=1):
     train_loss_q = []
     test_loss_q = []
 
-    al_margin = 1.0/len(alphabet_labels)
+    al_margin = 2.0/len(alphabet_labels)
     ph_margin = 1.0/len(phoneme_labels)
     tn_margin = 1.0/len(tone_labels)
     
@@ -352,11 +352,11 @@ def train(epoch=1):
             ph_loss = ctc_loss(ph, ph_t, emission_len, ph_l)
             tn_loss = ctc_loss(tn, tn_t, emission_len, tn_l)
 
-            b_loss = blank_loss(al, emission_len, margin=al_margin) + blank_loss(ph, emission_len, margin=ph_margin) + blank_loss(tn, emission_len, margin=tn_margin)
-            splite_loss = blank_loss(al, emission_len, 1, al_margin) + blank_loss(ph, emission_len, 1, ph_margin) + blank_loss(tn, emission_len, 1, tn_margin)
-            b_loss = b_loss * 0.5
-            splite_loss = splite_loss * 0.5
-            
+            b_loss = blank_loss(al, emission_len, margin=0) #+ blank_loss(ph, emission_len, margin=ph_margin) + blank_loss(tn, emission_len, margin=tn_margin)
+            splite_loss = blank_loss(al, emission_len, 1, al_margin) #+ blank_loss(ph, emission_len, 1, ph_margin) + blank_loss(tn, emission_len, 1, tn_margin)
+            b_loss = b_loss * 0.8
+            splite_loss = splite_loss * 0.3
+
             # Step 3. Run our backward pass
             optimizer.zero_grad()
             loss = al_loss + ph_loss + tn_loss + b_loss + splite_loss
