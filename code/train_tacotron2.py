@@ -11,6 +11,7 @@ LOAD_PATH = './checkpoint/tacotron2/model_temp.pt'
 LOG_DIR = './log/tacotron-4-'
 DATALOADER_WORKERS = 8
 CUDA_BATCH_SIZE = 256
+ALPHA = 0.4 # [0, 0.5], 越小越决定性，0表示只依靠org_mel，1表示纯自主预测，建议小于0.5
 
 def save_log(file_name, log, mode='a', path = LOG_DIR):
     with open(path+file_name, mode) as f:
@@ -156,7 +157,7 @@ def train(epoch=1):
 
             speaker_emb = model.speaker_encoder(mels_tensor.transpose(1,2), mel_length)
 
-            org_mel, pos_mel, stop_token, _ = model.forward(tokens, tokens_len, mels_tensor, mel_length, speaker_emb)
+            org_mel, pos_mel, stop_token, _ = model.forward(tokens, tokens_len, mels_tensor, mel_length, speaker_emb, alpha=ALPHA)
             loss1 = mse_loss(mels_tensor, org_mel)
             loss1 += mse_loss(mels_tensor, pos_mel)
 

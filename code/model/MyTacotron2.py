@@ -1,9 +1,91 @@
 from torchaudio.pipelines._tts.utils import _get_taco_params
-from torchaudio.models.tacotron2 import Tacotron2, _get_mask_from_lengths, _Decoder, _Encoder, _Postnet
+from model.official_tacotron2_adapted import Tacotron2, _get_mask_from_lengths, _Decoder, _Encoder, _Postnet
 import torch
 from torch import Tensor
-from typing import Tuple, List, Optional, Union
+from typing import Tuple, List, Optional, Union, overload
 from model.speaker_encoder import SpeakerEncoder
+
+class My_Decoder(_Decoder):
+    @overload
+    def forward(
+        self, memory: Tensor, mel_specgram_truth: Tensor, memory_lengths: Tensor, alpha: int = 0
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        r"""Decoder forward pass for training.
+
+        Args:
+            memory (Tensor): Encoder outputs
+                with shape (n_batch, max of ``text_lengths``, ``encoder_embedding_dim``).
+            mel_specgram_truth (Tensor): Decoder ground-truth mel-specs for teacher forcing
+                with shape (n_batch, ``n_mels``, max of ``mel_specgram_lengths``).
+            memory_lengths (Tensor): Encoder output lengths for attention masking
+                (the same as ``text_lengths``) with shape (n_batch, ).
+
+        Returns:
+            mel_specgram (Tensor): Predicted mel spectrogram
+                with shape (n_batch, ``n_mels``, max of ``mel_specgram_lengths``).
+            gate_outputs (Tensor): Predicted stop token for each timestep
+                with shape (n_batch,  max of ``mel_specgram_lengths``).
+            alignments (Tensor): Sequence of attention weights from the decoder
+                with shape (n_batch,  max of ``mel_specgram_lengths``, max of ``text_lengths``).
+        """
+
+        decoder_input = self._get_initial_frame(memory).unsqueeze(0) # 添加全0向量补齐长度
+        decoder_inputs = self._parse_decoder_inputs(mel_specgram_truth)
+        decoder_inputs = torch.cat((decoder_input, decoder_inputs), dim=0) # 补齐后有了全0初始帧
+        decoder_inputs = self.prenet(decoder_inputs)
+
+        mask = _get_mask_from_lengths(memory_lengths)
+
+        (
+            attention_hidden,
+            attention_cell,
+            decoder_hidden,
+            decoder_cell,
+            attention_weights,
+            attention_weights_cum,
+            attention_context,
+            processed_memory,
+        ) = self._initialize_decoder_states(memory)
+
+        mel_outputs, gate_outputs, alignments = [], [], []
+        mel_output = self._get_go_frame(memory)
+        while len(mel_outputs) < decoder_inputs.size(0) - 1:
+            decoder_input = decoder_inputs[len(mel_outputs)]
+            decoder_input2 = self.prenet(mel_output)
+            decoder_input = alpha * decoder_input2 + (1-alpha) * decoder_input
+            (
+                mel_output,
+                gate_output,
+                attention_hidden,
+                attention_cell,
+                decoder_hidden,
+                decoder_cell,
+                attention_weights,
+                attention_weights_cum,
+                attention_context,
+            ) = self.decode(
+                decoder_input,
+                attention_hidden,
+                attention_cell,
+                decoder_hidden,
+                decoder_cell,
+                attention_weights,
+                attention_weights_cum,
+                attention_context,
+                memory,
+                processed_memory,
+                mask,
+            )
+
+            mel_outputs += [mel_output.squeeze(1)]
+            gate_outputs += [gate_output.squeeze(1)]
+            alignments += [attention_weights]
+
+        mel_specgram, gate_outputs, alignments = self._parse_decoder_outputs(
+            torch.stack(mel_outputs), torch.stack(gate_outputs), torch.stack(alignments)
+        )
+
+        return mel_specgram, gate_outputs, alignments
 
 class MyTacotron2(Tacotron2):
     def __init__(
