@@ -5,14 +5,9 @@ import torchaudio
 # from pypinyin import lazy_pinyin
 # from torch.nn.utils.rnn import pad_sequence
 
-from utils.dataset import AiShell3Dataset, MelLoaderGenerator, RawLoaderGenerator # AiShell3PersonDataset, RawLoaderGenerator, 
+from utils.dataset import AiShell3Dataset, MelLoaderGenerator # AiShell3PersonDataset, RawLoaderGenerator, 
 
-LOAD_PATH = './checkpoint/tacotron2/model_temp.pt'
-LOG_DIR = './log/tacotron-4-'
-DATALOADER_WORKERS = 8
-CUDA_BATCH_SIZE = 256
-
-def save_log(file_name, log, mode='a', path = LOG_DIR):
+def save_log(file_name, log, mode='a', path = './log/tacotron-1-'):
     with open(path+file_name, mode) as f:
         if mode == 'a':
             f.write('\n')
@@ -43,25 +38,22 @@ def raw_audio_transform(sample, sample_rate=None):
         audio = sample['audio']
         # audio = torchaudio.functional.vad(audio, sample_rate, trigger_level=5)
         audio = audio / torch.abs(audio).max()*0.15
-        sample['audio'] = audio
         text = sample['text']
         text = text.split(' ')
         pinyin = [text[i] for i in range(len(text)) if i%2==1]
         pinyin = ' '.join(pinyin) # 使用空格分离单字
-        sample['text'] = '. '+pinyin+' .'
         chinese = [text[i] for i in range(len(text)) if i%2==0]
-        sample['chinese'] = chinese
-        return sample
-
-sample_rate = 16000
+        return {'audio':audio,
+                'text': pinyin+' .',
+                'chinese': chinese}
+sample_rate = 16000               
 # dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, \
 #         person_id='SSB0011', sample_rate=sample_rate)
 dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, sample_rate=sample_rate)
 
-# 注意，这儿使用mel loader，因为这样子可以trim掉空白区域，但是会导致GPU时间降低
-loaderGenerator = MelLoaderGenerator(labels, k_size=256, num_workers=DATALOADER_WORKERS, sample_rate=sample_rate)
-# loaderGenerator = RawLoaderGenerator(labels, k_size=5, num_workers=DATALOADER_WORKERS, sample_rate=sample_rate)
-batch_size = CUDA_BATCH_SIZE if device == torch.device("cuda") else 4
+# loaderGenerator = RawLoaderGenerator(labels, k_size=5, num_workers=1)
+loaderGenerator = MelLoaderGenerator(labels, k_size=256, num_workers=1, sample_rate=sample_rate)
+batch_size = 256 if device == torch.device("cuda") else 4
 train_set, test_set = dataset.split([1,0])
 train_loader = loaderGenerator.dataloader(train_set, batch_size=batch_size)
 
@@ -86,21 +78,21 @@ model = MyTacotron2(labels,
 from os.path import exists
 def load_checkpoint(path):
     if exists(path):
-        save_log(f'e.txt', ['path', path, 'exist, loading...'])
         checkpoint = torch.load(path, map_location=device)
         if 'model_state_dict' in checkpoint:
-            model.load_state_dict(checkpoint['model_state_dict']) # , strict=False?
-
+            model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+LOAD_PATH = './checkpoint/tacotron2/model_n4.pt'
+# LOAD_PATH = './checkpoint/tacotron2/model_n3.pt'
 load_checkpoint(LOAD_PATH)
 
 # torch.nn.init.xavier_uniform_(model.decoder.gate_layer.weight, gain=torch.nn.init.calculate_gain('sigmoid'))
-# from model.speaker_encoder import SpeakerEncoder
-# model.speaker_encoder = SpeakerEncoder(80, 256, 128).to(device)
+from model.speaker_encoder import SpeakerEncoder
+model.speaker_encoder = SpeakerEncoder(80, 256, 128).to(device)
 
 params = model.parameters()
 # params = list(model.embedding.parameters())+list(model.encoder.parameters())+list(model.speaker_encoder.parameters())
-# optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
-optimizer = torch.optim.Adam(params, lr=0.0001)
+# optimizer = torch.optim.SGD(params, lr=0.01, momentum=0.9)
+optimizer = torch.optim.Adam(params, lr=0.001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 initial_epoch = 0
 mse_loss = torch.nn.MSELoss()
@@ -124,13 +116,9 @@ def save_checkpoint(EPOCH, LOSS):
     PATH = f"./checkpoint/tacotron2/model_{EPOCH}_{'%.3f' % LOSS}.pt"
     dump_model(EPOCH, LOSS, PATH)
 
-from torchaudio.transforms import FrequencyMasking, TimeMasking
-
 def train(epoch=1):
     train_loss_q = []
     test_loss_q = []
-    f_mask = FrequencyMasking(freq_mask_param=25)
-    t_mask = TimeMasking(time_mask_param=25)
     for epoch in range(initial_epoch, epoch):
         batch_train_loss = []
         for i_batch, sample_batched in enumerate(train_loader):
@@ -142,12 +130,6 @@ def train(epoch=1):
             tokens_len = sample_batched['target_len'].to(device)
             mels_tensor = sample_batched['mel'].to(device) # [bs, mel_bins, L]
             mel_length = sample_batched['mel_len'].to(device)
-
-
-            # mels_tensor_masked = mels_tensor
-            # mels_tensor_masked = t_mask(mels_tensor_masked) # time mask
-            # mels_tensor_masked = t_mask(mels_tensor_masked) # 2nd time mask
-            # mels_tensor_masked = f_mask(mels_tensor_masked) # feature mask
 
             # Step 2. Run our forward pass
             # mels_list = [safe_log(mel_transform(audio[i][:audio_len[i]])).transpose(0,1) for i in range(len(audio_len))]
@@ -193,7 +175,6 @@ def train(epoch=1):
                     'bce_loss', '{:.3f}'.format(loss3.item())])
                 save_temp(epoch, test_loss) # save temp checkpoint
                 # test_decoder(epoch, 5)
-            # exit()
             
         # scheduler.step()
         save_checkpoint(epoch, mean(test_loss_q))

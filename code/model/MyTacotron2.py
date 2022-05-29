@@ -1,5 +1,5 @@
 from torchaudio.pipelines._tts.utils import _get_taco_params
-from torchaudio.models.tacotron2 import Tacotron2, _get_mask_from_lengths, _Decoder, _Encoder
+from torchaudio.models.tacotron2 import Tacotron2, _get_mask_from_lengths, _Decoder, _Encoder, _Postnet
 import torch
 from torch import Tensor
 from typing import Tuple, List, Optional, Union
@@ -19,11 +19,11 @@ class MyTacotron2(Tacotron2):
         cutted_encoder_embedding_dim = _tacotron2_params['encoder_embedding_dim'] - speaker_emb_size
         self.speaker_encoder = SpeakerEncoder(_tacotron2_params['n_mels'], 256, speaker_emb_size)
         self.embedding = torch.nn.Embedding(_tacotron2_params['n_symbol'], cutted_encoder_embedding_dim)
-        self.encoder = _Encoder(cutted_encoder_embedding_dim, _tacotron2_params['encoder_n_convolution'], _tacotron2_params['encoder_kernel_size'])
+        self.encoder: _Encoder = _Encoder(cutted_encoder_embedding_dim, _tacotron2_params['encoder_n_convolution'], _tacotron2_params['encoder_kernel_size'])
         if decoder is not None:
-            self.decoder = decoder
+            self.decoder: _Decoder = decoder
         if postnet is not None:
-            self.postnet = postnet
+            self.postnet: _Postnet = postnet
         self.speaker_emb_size = speaker_emb_size
         self.version = '0.05'
     
@@ -34,6 +34,7 @@ class MyTacotron2(Tacotron2):
         mel_specgram: Tensor,
         mel_specgram_lengths: Tensor,
         speaker_emb: Optional[Tensor]=None,
+        alpha: int = 0,
     ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         r"""Pass the input through the Tacotron2 model. This is in teacher
         forcing mode, which is generally used for training.
@@ -75,7 +76,7 @@ class MyTacotron2(Tacotron2):
         # end this part
 
         mel_specgram, gate_outputs, alignments = self.decoder(
-            encoder_outputs, mel_specgram, memory_lengths=token_lengths
+            encoder_outputs, mel_specgram, memory_lengths=token_lengths, alpha=alpha
         )
 
         mel_specgram_postnet = self.postnet(mel_specgram)

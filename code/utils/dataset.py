@@ -614,8 +614,9 @@ class RawLoaderGenerator:
         audio_length = [audio.shape[-1] for audio in audio_list]
         target_list = [self.label2id(item['text']) for item in batch]
         target_length = [len(l) for l in target_list]
+        chinese_list = [batch[i]['chinese'] for i in range(bs)]
 
-        target_length, target_list, audio_length, audio_list = zip(*sorted(zip(target_length, target_list, audio_length, audio_list), reverse=True))
+        target_length, target_list, audio_length, audio_list, chinese_list = zip(*sorted(zip(target_length, target_list, audio_length, audio_list, chinese_list), reverse=True))
         target_length = torch.tensor(target_length)
         audio_length = torch.tensor(audio_length)
 
@@ -631,7 +632,8 @@ class RawLoaderGenerator:
             (torch.tensor(l), torch.zeros([max_target_length-len(l)], dtype=torch.int)), -1).unsqueeze(0) 
             for l in target_list], 0)
         return {'audio': audio_list, 'audio_len': audio_length, 
-                'target': target_list, 'target_len': target_length}
+                'target': target_list, 'target_len': target_length,
+                'chinese': chinese_list}
 
     def dataloader(self, audioDataset, batch_size, shuffle=True):
         # k_size is the kernel size for the encoder, for data augmentation

@@ -13,9 +13,10 @@ from model.wav2vec2 import Wav2Vec2Builder
 
 # 设置训练的参数
 NUM_EPOCHS = 20
-LOAD_PATH = './checkpoint/wav2vec/splt2.pt' # checkpoint used if exist
-LOG_PATH = './log/n5-' # log file
-DATALOADER_WORKERS = 2 # dataloader workers
+BATCH_SIZE = 32
+LOAD_PATH = './checkpoint/wav2vec/model_temp.pt' # checkpoint used if exist
+LOG_PATH = './log/n3-' # log file
+DATALOADER_WORKERS = 1 # dataloader workers
 LOAD_OPTIMIZER = False # for momentun, Adam, ...
 LOAD_INITIAL_EPOCH = False
 
@@ -105,6 +106,7 @@ class MultiTaskRawLoaderGenerator:
         return ''.join([self.labels_list[label_set][i] for i in idcs])
 
     def contains_english(self, chinese):
+        return False
         for i in range(len(chinese)):
             if chinese[i] in self.alphabet_set:
                 return True
@@ -118,6 +120,26 @@ class MultiTaskRawLoaderGenerator:
                 del batch[i]
         return batch
 
+    # def is_silent(self, i, waveform, max_wav, threshold=0.005):
+    #     ratio = feature_ratio
+    #     x0 = int(ratio * i)
+    #     x1 = int(ratio * (i+1))
+    #     silent = max(waveform[x0: x1]) < threshold*max_wav
+    #     # print(ratio, x0, x1, silent)
+    #     return 1 if silent else 0
+        
+    # def get_vads(self, waveform):
+    #     waveform_len = len(waveform)
+    #     output_len = int(waveform_len/feature_ratio)
+    #     out= []
+    #     waveform_abs = abs(waveform)
+    #     max_wav = max(waveform_abs)
+    #     for i in range(output_len):
+    #         out.append(
+    #             self.is_silent(i, waveform_abs, max_wav)
+    #         )
+    #     return out
+
     def collate_wrapper(self, batch:list): # RAW
         batch = self.batch_filter(batch)
         bs = len(batch)
@@ -126,6 +148,16 @@ class MultiTaskRawLoaderGenerator:
         audio_length = [audio.shape[-1] for audio in audio_list]
         audio_length = torch.tensor(audio_length)
         max_audio_length = torch.max(audio_length)
+        # vads = [torch.Tensor(self.get_vads(audio[0])) for audio in audio_list]
+        # vads_len = [len(vad) for vad in vads]
+        # max_vad_length = max(vads_len)
+        # vads_len = torch.Tensor(vads_len)
+        # vads = torch.cat([
+        #     torch.cat(
+        #         (vad, torch.zeros(max_vad_length-vad.shape[-1])) 
+        #     , 0).unsqueeze(0)
+        # for vad in vads], 0)
+
         audio_list = torch.cat([
             torch.cat(
             (audio, torch.zeros(max_audio_length-audio.shape[-1]).unsqueeze(0)), -1)
@@ -144,7 +176,8 @@ class MultiTaskRawLoaderGenerator:
             all_target_list.append(target_list)
             all_target_length.append(target_length)
         return {'audio': audio_list, 'audio_len': audio_length, 
-                'target': all_target_list, 'target_len': all_target_length}
+                'target': all_target_list, 'target_len': all_target_length,}
+                # 'vads': vads, 'vads_len': vads_len}
 
     def dataloader(self, audioDataset, batch_size, shuffle=True):
         # k_size is the kernel size for the encoder, for data augmentation
@@ -178,10 +211,12 @@ def ai_shell_3_transform(sample, sample_rate=None):
 dataset1 = PrimeWordsDataset('/scratch/bh2283/data/primewords_md_2018_set1/', transform=raw_audio_transform)
 dataset2 = STCMDSDataset('/ST-CMDS-20170001_1-OS/', transform=raw_audio_transform) # singularity usage only
 dataset3 = AiShellDataset('/scratch/bh2283/data/data_aishell/', transform=raw_audio_transform)
-dataset4 = AiDataTangDataset('/aidatatang_200zh/', transform=raw_audio_transform) # singularity usage only
+# dataset4 = AiDataTangDataset('/aidatatang_200zh/', transform=raw_audio_transform) # singularity usage only
 dataset5 = AiShell3Dataset('/data_aishell3/train/', transform=ai_shell_3_transform) # singularity usage only
 dataset6 = SpeechOceanDataset('/scratch/bh2283/data/zhspeechocean/', transform=raw_audio_transform)
-datasets = [dataset1, dataset2, dataset3, dataset4, dataset5, dataset6]
+datasets = [dataset1, dataset2, dataset3, dataset5, dataset6]
+
+# datasets = [dataset1, dataset2]
 
 train_sets = []
 test_sets = []
@@ -197,8 +232,17 @@ labels_sizes = [len(labels) for labels in labels_list]
 builder = Wav2Vec2Builder(torchaudio.pipelines.VOXPOPULI_ASR_BASE_10K_EN, labels_sizes)
 k_size = builder.kernel_size
 
+# 模型初始化
+save_log(f'e.txt', ['Init Model ...'])
+from model.wav2vec2 import Wav2Vec2Builder
+model = builder.get_model()
+from functools import reduce
+feature_extractor_strides = [layer.conv.stride[0] for layer in model.feature_extractor.conv_layers]
+feature_ratio = int(reduce(lambda x, y: x * y , feature_extractor_strides))
+save_log(f'e.txt', ['k_size:', k_size, 'feature_ratio:', feature_ratio])
+
 # batch_size = int(train_set.dataset.batch_size*0.8) # tain batch size
-batch_size = 24
+batch_size = BATCH_SIZE
 test_batch = batch_size # test batch size, keep bs small to save memory
 loaderGenerator = MultiTaskRawLoaderGenerator(labels_list, translators_list, k_size, num_workers=DATALOADER_WORKERS)
 train_loader = loaderGenerator.dataloader(train_set, batch_size)
@@ -206,11 +250,6 @@ test_loader = loaderGenerator.dataloader(test_set, test_batch, shuffle=False)
 save_log(f'e.txt', ['train_set:', len(train_set), 'test_set:',len(test_set)])
 save_log(f'e.txt', ['train batch_size:', batch_size, ', test batch_size', test_batch])
 
-# 模型初始化
-save_log(f'e.txt', ['Init Model ...'])
-from model.wav2vec2 import Wav2Vec2Builder
-model = builder.get_model()
-save_log(f'e.txt', ['k_size:', builder.kernel_size])
 
 # 不修改feature_extractor，因为在最底层，可以不回传梯度。只对encoder和aux做梯度下降
 for param in model.feature_extractor.parameters():
@@ -308,6 +347,7 @@ def test():
             tn_losses.append(tn_loss.item())
     return mean(losses), mean(al_losses), mean(ph_losses), mean(tn_losses)
 
+
 def blank_loss(emission, emission_len, blank_id=0, margin=0):
     # input emission with shape [time, bs, class]
     # input emission_len with shape [bs]
@@ -322,18 +362,37 @@ def blank_loss(emission, emission_len, blank_id=0, margin=0):
     # print(mean_axis)
     return torch.mean(mean_axis)
 
+# def split_loss(emission, emission_len, vads, vads_len, blank_id=1, margin=0.4):
+#     # input emission with shape [time, bs, class]
+#     # input emission_len with shape [bs]
+#     # input vads with shape [bs, time]
+#     # input vads_len with shape [bs]
+#     blank_emission_p = 1-torch.exp(emission[:, :, blank_id]) # probability of blank [time, bs]
+#     blank_emission_p = torch.relu(blank_emission_p - margin) # dismiss if less than margin [time, bs]
+#     mask = torch.arange(max(emission_len))[:, None].to(device) < emission_len[None, :] # [time, bs]
+#     mask = mask 
+#     # print(blank_emission_p.shape)
+#     vads = vads.T
+#     vads = vads[:mask.shape[0],:]
+#     # print(mask.shape)
+#     # print(vads.shape)
+#     blank_emission_p = blank_emission_p * vads
+#     blank_emission_p = blank_emission_p * mask # apply mask
+#     mean_axis = torch.sum(blank_emission_p, dim=0)/emission_len
+#     return torch.mean(mean_axis)
+
 # Training the model
 def train(epoch=1):
     train_loss_q = []
     test_loss_q = []
 
-    al_margin = 2.0/len(alphabet_labels)
+    al_margin = 1.0/len(alphabet_labels)
     ph_margin = 1.0/len(phoneme_labels)
     tn_margin = 1.0/len(tone_labels)
     
     for epoch in range(initial_epoch, epoch):
         
-        batch_train_loss, b_al, b_ph, b_tn, b_blank = [], [], [], [], []
+        batch_train_loss, b_al, b_ph, b_tn, b_blank, s_blank = [], [], [], [], [], []
         for i_batch, sample_batched in enumerate(train_loader):
             model.train()
             # Step 1. Prepare Data
@@ -341,6 +400,9 @@ def train(epoch=1):
             wave_len = sample_batched['audio_len'].to(device)
             target = [sample_batched['target'][i].to(device) for i in range(len(sample_batched['target']))]
             target_len = [sample_batched['target_len'][i].to(device) for i in range(len(sample_batched['target_len']))]
+            # vads = sample_batched['vads'].to(device)
+            # vads_len = sample_batched['vads_len'].to(device)
+
             al_t, ph_t, tn_t = target[0], target[1], target[2]
             al_l, ph_l, tn_l = target_len[0], target_len[1], target_len[2]
 
@@ -352,18 +414,21 @@ def train(epoch=1):
             ph_loss = ctc_loss(ph, ph_t, emission_len, ph_l)
             tn_loss = ctc_loss(tn, tn_t, emission_len, tn_l)
 
-            b_loss = blank_loss(al, emission_len, margin=0) #+ blank_loss(ph, emission_len, margin=ph_margin) + blank_loss(tn, emission_len, margin=tn_margin)
-            splite_loss = blank_loss(al, emission_len, 1, al_margin) #+ blank_loss(ph, emission_len, 1, ph_margin) + blank_loss(tn, emission_len, 1, tn_margin)
-            b_loss = b_loss * 0.8
-            splite_loss = splite_loss * 0.3
+            b_loss = blank_loss(al, emission_len, margin=al_margin*0.2) #+ blank_loss(ph, emission_len, margin=ph_margin) + blank_loss(tn, emission_len, margin=tn_margin)
+            # b_loss += blank_loss(al, emission_len, 1, al_margin*0.6)
+            # splite_loss = blank_loss(al, emission_len, 1, al_margin*0.6) #+ blank_loss(ph, emission_len, 1, ph_margin) + blank_loss(tn, emission_len, 1, tn_margin)
+            s_loss = blank_loss(al, emission_len, 1, al_margin*0.8)
+            b_loss = b_loss * 0.2
+            s_loss = s_loss * 0.2
 
             # Step 3. Run our backward pass
             optimizer.zero_grad()
-            loss = al_loss + ph_loss + tn_loss + b_loss + splite_loss
+            loss = al_loss + ph_loss + tn_loss + b_loss + s_loss
             loss.backward()
             optimizer.step()
 
-            # print(al_loss.item(), ph_loss.item(), tn_loss.item(), b_loss.item())
+            # print(al_loss.item(), ph_loss.item(), tn_loss.item(), b_loss.item(), s_loss.item())
+            # # print(vads[0])
             # exit()
 
 
@@ -376,24 +441,25 @@ def train(epoch=1):
             b_ph.append(ph_loss.item())
             b_tn.append(tn_loss.item())
             b_blank.append(b_loss.item())
+            s_blank.append(s_loss.item())
 
             if i_batch % (5000 // batch_size) == 0: # log about each 1000 data
                 test_loss, t_al, t_ph, t_tn = test()
                 # test_loss = 0
                 batch_train_loss = mean(batch_train_loss)
-                b_al, b_ph, b_tn, b_blank = mean(b_al), mean(b_ph), mean(b_tn), mean(b_blank)
+                b_al, b_ph, b_tn, b_blank, s_blank = mean(b_al), mean(b_ph), mean(b_tn), mean(b_blank), mean(s_blank)
 
                 test_loss_q.append(test_loss)
                 train_loss_q.append(batch_train_loss)
                 save_log(f'e{epoch}.txt', ['🟣 epoch', epoch, 'data', i_batch*batch_size, 
                     'lr', scheduler.get_last_lr(), 
                     '[train_loss:{:.3f}]'.format(batch_train_loss), 
-                    'al:{:.3f}, ph:{:.3f}, tn:{:.3f}, blank:{:.3f}'.format(b_al, b_ph, b_tn, b_blank),
+                    'al:{:.3f}, ph:{:.3f}, tn:{:.3f}, blank:{:.3f}, splt:{:.3f}'.format(b_al, b_ph, b_tn, b_blank, s_blank),
                     '[test_los:{:.3f}]'.format(test_loss),
                     'al:{:.3f}, ph:{:.3f}, tn:{:.3f}'.format(t_al, t_ph, t_tn),
                     ])
                 save_temp(epoch, test_loss) # save temp checkpoint
-                batch_train_loss, b_al, b_ph, b_tn, b_blank = [], [], [], [], []
+                batch_train_loss, b_al, b_ph, b_tn, b_blank, s_blank = [], [], [], [], [], []
             if i_batch % (40000 // batch_size) == 0:
                 test_decoder(epoch, 2)
             
@@ -406,7 +472,7 @@ if __name__ == '__main__':
     save_log(f'e.txt', ['Loading Checkpoint ...'])
     load_checkpoint(LOAD_PATH)
     test_decoder('', 2)
-    save_log(f'e.txt', ['initial test loss:', test()])
+    # save_log(f'e.txt', ['initial test loss:', test()])
     save_log(f'e.txt', ['Start training ...'])
     train(NUM_EPOCHS)
 
