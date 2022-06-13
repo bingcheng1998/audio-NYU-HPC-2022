@@ -1,6 +1,6 @@
 import torch
 
-def trim_mel_silence(mel_in, min_range=10, ratio=5.0, min_threshold=0.1):
+def trim_mel_silence(mel_in, min_range=10, ratio=50, min_threshold=0.1):
     # mel_in: [mel_bin, L]
     # you should make sure the top min_range mel columns are silent
     assert ratio >= 1.0, f'get ratio {ratio}, but it should be larger than 1.0, and 5.0 is recommended.'

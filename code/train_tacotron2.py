@@ -8,9 +8,10 @@ import torchaudio
 from utils.dataset import AiShell3Dataset, MelLoaderGenerator, RawLoaderGenerator # AiShell3PersonDataset, RawLoaderGenerator, 
 
 LOAD_PATH = './checkpoint/tacotron2/model_temp.pt'
-LOG_DIR = './log/tacotron-4-'
+LOG_DIR = './log/tacotron-8-'
 DATALOADER_WORKERS = 8
-CUDA_BATCH_SIZE = 256
+CUDA_BATCH_SIZE = 128
+LEARNING_RATE = 0.0001
 ALPHA = 0.4 # [0, 0.5], 越小越决定性，0表示只依靠org_mel，1表示纯自主预测，建议小于0.5
 
 def save_log(file_name, log, mode='a', path = LOG_DIR):
@@ -100,8 +101,8 @@ load_checkpoint(LOAD_PATH)
 
 params = model.parameters()
 # params = list(model.embedding.parameters())+list(model.encoder.parameters())+list(model.speaker_encoder.parameters())
-# optimizer = torch.optim.SGD(params, lr=0.001, momentum=0.9)
-optimizer = torch.optim.Adam(params, lr=0.0001)
+# optimizer = torch.optim.SGD(params, lr=LEARNING_RATE, momentum=0.5)
+optimizer = torch.optim.Adam(params, lr=LEARNING_RATE)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
 initial_epoch = 0
 mse_loss = torch.nn.MSELoss()
@@ -125,13 +126,10 @@ def save_checkpoint(EPOCH, LOSS):
     PATH = f"./checkpoint/tacotron2/model_{EPOCH}_{'%.3f' % LOSS}.pt"
     dump_model(EPOCH, LOSS, PATH)
 
-from torchaudio.transforms import FrequencyMasking, TimeMasking
 
 def train(epoch=1):
     train_loss_q = []
     test_loss_q = []
-    f_mask = FrequencyMasking(freq_mask_param=25)
-    t_mask = TimeMasking(time_mask_param=25)
     for epoch in range(initial_epoch, epoch):
         batch_train_loss = []
         for i_batch, sample_batched in enumerate(train_loader):
@@ -161,6 +159,10 @@ def train(epoch=1):
             loss1 = mse_loss(mels_tensor, org_mel)
             loss1 += mse_loss(mels_tensor, pos_mel)
 
+            org_mel, pos_mel, stop_token2, _ = model.forward(tokens, tokens_len, mels_tensor, mel_length, speaker_emb, alpha=0)
+            loss1 += mse_loss(mels_tensor, org_mel)
+            loss1 += mse_loss(mels_tensor, pos_mel)
+
             reconstruct_speaker_emb = model.speaker_encoder(pos_mel.transpose(1,2), mel_length)
             loss2 = cos_loss(speaker_emb, reconstruct_speaker_emb, torch.ones_like(tokens_len))
 
@@ -168,6 +170,7 @@ def train(epoch=1):
             for i in range(true_stop_token.shape[0]):
                 true_stop_token[i][mel_length[i]:]+=1.0
             loss3 = bce_loss(torch.sigmoid(stop_token), true_stop_token)
+            loss3 += bce_loss(torch.sigmoid(stop_token2), true_stop_token)
             
             # Step 3. Run our backward pass
             optimizer.zero_grad()
@@ -181,7 +184,7 @@ def train(epoch=1):
             
             batch_train_loss.append(loss.item())
 
-            if i_batch % (500 // batch_size) == 0: # log about each n data
+            if i_batch % (3000 // batch_size) == 0: # log about each n data
                 # test_loss = test()
                 test_loss = 0
                 train_loss = mean(batch_train_loss)

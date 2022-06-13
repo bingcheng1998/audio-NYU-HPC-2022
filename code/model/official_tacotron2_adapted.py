@@ -707,7 +707,7 @@ class _Decoder(nn.Module):
         decoder_input = self._get_initial_frame(memory).unsqueeze(0) # 添加全0向量补齐长度
         decoder_inputs = self._parse_decoder_inputs(mel_specgram_truth)
         decoder_inputs = torch.cat((decoder_input, decoder_inputs), dim=0) # 补齐后有了全0初始帧
-        decoder_inputs = self.prenet(decoder_inputs)
+        decoder_inputs = self.prenet(decoder_inputs) # [time, BS, mel_bins]
 
         mask = _get_mask_from_lengths(memory_lengths)
 

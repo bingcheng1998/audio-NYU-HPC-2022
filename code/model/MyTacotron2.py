@@ -218,6 +218,11 @@ class MyTacotron2(Tacotron2):
         # end this part
 
         mel_specgram, mel_specgram_lengths, _, alignments = self.decoder.infer(encoder_outputs, lengths)
+        # mel_specgram = torch.zeros([1, 80, 200])
+        # mel_specgram_lengths = None
+        # mel_specgram, gate_outputs, alignments = self.decoder(
+        #     encoder_outputs, mel_specgram, memory_lengths=lengths, alpha=1
+        # )
 
         mel_outputs_postnet = self.postnet(mel_specgram)
         mel_outputs_postnet = mel_specgram + mel_outputs_postnet
