@@ -56,6 +56,16 @@
 - [ ] 单字生成新的想法：decoder可以使用tactron的decoder。修改encoder，专为单字生成，encoder的输出embedding包括：字，音，前一个字，后一个字，长度，speaker embedding的等，以后甚至可以包括语气
 
 
+## 新的TODO
+  - [ ] 单字生成（预）
+    - [ ] 直接使用歌唱数据集训练个tacotron2生成器
+  - [ ] 单字分割
+    - [ ] 新的预训练模型，使得长度可以正确对应
+    - [ ] 音乐数据集制作，可以生成所需的每个字对应的区间
+  - [ ] speaker embedding
+  - [ ] 单字生成
+  - [ ] 唱段生成
+
 
 ----
 ## 语音CTC注意事项
