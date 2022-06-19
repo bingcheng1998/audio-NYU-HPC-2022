@@ -33,78 +33,33 @@ def get_alphabet_labels():
             
 def get_initial_table():
     return ['b', 'p', 'm', 'f',
-                'd', 't', 'n', 'l',
-                'g', 'k', 'h',
-                'j', 'q', 'x',
-                'zh', 'ch', 'sh', 'r', 'z', 'c', 's', 'y', 'w']
+            'd', 't', 'n', 'l',
+            'g', 'k', 'h',
+            'j', 'q', 'x',
+            'zh', 'ch', 'sh', 'r', 'z', 'c', 's', 'y', 'w']
+
+def get_final_table():
+    return ['i', 'u', 'v', 
+            'a', 'ia', 'ua', 
+            'o', 'uo', 'e', 'ie', 've',
+            'ai', 'uai',
+            'ei', 'uei',
+            'ao', 'iao',
+            'ou', 'iou',
+            'an', 'ian',
+            'uan', 'van',
+            'en', 'in', 'uen', 'vn',
+            'ang', 'iang', 'uang',
+            'eng', 'ing', 'ueng',
+            'ong', 'iong',
+            'er', 'ê',]
 
 def get_phoneme_labels():
     # 汉语声母韵母
-    _INITIALS = [
-            'b',
-            'p',
-            'm',
-            'f',
-            'd',
-            't',
-            'n',
-            'l',
-            'g',
-            'k',
-            'h',
-            'j',
-            'q',
-            'x',
-            'zh',
-            'ch',
-            'sh',
-            'r',
-            'z',
-            'c',
-            's',
-        ]
-    _FINALS = [
-            'i',
-            'u',
-            'v',
-            'a',
-            'ia',
-            'ua',
-            'o',
-            'uo',
-            'e',
-            'ie',
-            've',
-            'ai',
-            'uai',
-            'ei',
-            'uei',
-            'ao',
-            'iao',
-            'ou',
-            'iou',
-            'an',
-            'ian',
-            'uan',
-            'van',
-            'en',
-            'in',
-            'uen',
-            'vn',
-            'ang',
-            'iang',
-            'uang',
-            'eng',
-            'ing',
-            'ueng',
-            'ong',
-            'iong',
-
-            'er',
-            'ê',
-        ]
+    _INITIALS = get_initial_table()
+    _FINALS = get_final_table()
     return ('-', '|') + tuple(
-        _INITIALS + ['y', 'w'] + _FINALS
+        _INITIALS + _FINALS
     )
 
 def get_tone_labels():
