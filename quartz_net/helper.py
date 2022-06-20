@@ -109,4 +109,5 @@ def get_pitch_labels():
             'G#3/Ab3',
             'G#4/Ab4',
             'G3',
-            'G4')
+            'G4',
+            'rest')
