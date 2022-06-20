@@ -499,13 +499,11 @@ class AiDataTangDataset(SpeechDataset):
 
 class OpencpopDataset(SpeechDataset):
 
-    def __init__(self, data_path, sample_rate=16000, transform=None, fast_load=False):
+    def __init__(self, data_path, sample_rate=16000, transform=None):
         super().__init__(data_path, sample_rate, transform)
-        self.fast_load = fast_load
-        transcript_file = data_path+'transcript/aidatatang_200_zh_transcript.txt'
+        transcript_file = data_path+'transcriptions.txt'
         self.transcript = self.gen_transcript(transcript_file)
-        self.wav_files = self.get_all_wav_files(data_path, self.transcript)
-        self.dataset_file_num = len(self.wav_files)
+        self.dataset_file_num = len(self.transcript)
         self.threshold = 120000 # to avoid GPU memory used out
         self.batch_size = 80 # to avoid GPU memory used out
         self.split_ratio = [1000, 3]
@@ -518,58 +516,39 @@ class OpencpopDataset(SpeechDataset):
             idx = idx.tolist()
         if idx >= self.dataset_file_num:
             return {'audio': None, 'text': None}
-        audio_name = self.wav_files[idx]
-        waveform, sample_rate = torchaudio.load(audio_name)
-        waveform = waveform
-        if sample_rate != self.sample_rate:
-            waveform = torchaudio.functional.resample(waveform, sample_rate, self.sample_rate)
-        dict_id = audio_name.rsplit('/',1)[-1].split('.')[0]
-        audio_content = self.transcript[dict_id]
-        sample = {'audio': waveform, 'text': audio_content}
+        line = self.transcript[idx]
+        id, text, phoneme, note, note_duration, phoneme_duration, slur_note = self.parser_line(line)
+        waveform = self.get_audio(id)
+        # text_with_p, phoneme, note, note_duration = merge_note(text, phoneme, note, note_duration)
+        sample = {'audio': waveform, 'text': line}
         if self.transform:
             sample = self.transform(sample, self.sample_rate)
         return sample
 
-    def parse_line(self, line):
-        id, text = line.split(' ', 1)
-        text = ''.join(text.split(' '))
-        return id, text
+    def get_audio(self, id):
+        wav_path = self.data_path+'wavs/'+str(id)+'.wav'
+        waveform, sample_rate = torchaudio.load(wav_path)
+        if sample_rate != self.sample_rate:
+            waveform = torchaudio.functional.resample(waveform[0].unsqueeze(0), sample_rate, self.sample_rate)
+        return waveform
+
+    def parser_line(self, line):
+        id, text, phoneme, note, note_duration, phoneme_duration, slur_note = line.split('|')
+        phoneme = phoneme.split(' ')
+        note = note.split(' ')
+        note_duration = [float(i) for i in note_duration.split(' ')]
+        phoneme_duration = [float(i) for i in phoneme_duration.split(' ')]
+        slur_note = [int(i) for i in slur_note.split(' ')]
+        assert len(phoneme) == len(note_duration) and len(phoneme_duration) == len(slur_note) and len(slur_note) == len(phoneme)
+        return id, text, phoneme, note, note_duration, phoneme_duration, slur_note
 
     def gen_transcript(self, transcript_file):
-        pk = cache_path+'dataset_temp/aidatatang_200_zh_transcript.pickle'
-        if self.fast_load and exists(pk):
-            with open(pk,"rb") as f:
-                return pickle.load(f)
-        transcript = {}
-        with open(transcript_file, 'r') as f:
-            content = f.read()
-            lines = content.split('\n')[:-1]
-            for line in lines:
-                id, text = self.parse_line(line)
-                transcript[id] = text
-        with open(pk,"wb") as f:
-            pickle.dump(transcript, f)
-        return transcript
+        with open(transcript_file) as f:
+            lines = f.read().split('\n')
+            if (lines[-1]==''):
+                lines = lines[:-1]
+            return lines
 
-    def get_all_wav_files(self, path, transcript):
-        pk = cache_path+'dataset_temp/aidatatang_200_zh_all_wav_files.pickle'
-        if self.fast_load and exists(pk):
-            with open(pk,"rb") as f:
-                return pickle.load(f)
-        folders = []
-        train = os.listdir(path+'corpus/train/')
-        folders += [path+'corpus/train/'+i for i in train]
-        dev = os.listdir(path+'corpus/dev/')
-        folders += [path+'corpus/dev/'+i for i in dev]
-        test = os.listdir(path+'corpus/test/')
-        folders += [path+'corpus/test/'+i for i in test]
-        files = []
-        for folder in folders:
-            files += [folder+'/'+i for i in os.listdir(folder) if i[-4:]=='.wav' and i[:-4] in transcript]
-        with open(pk,"wb") as f:
-            pickle.dump(files, f)
-        return files
-    
     def split(self, split_ratio=None, seed=42):
         audio_dataset = self
         size = len(audio_dataset)
@@ -722,6 +701,85 @@ class RawLoaderGenerator:
         self.threshold = audioDataset.dataset.threshold
         return DataLoader(audioDataset, batch_size,
                             shuffle, num_workers=self.num_workers, collate_fn=self.collate_wrapper)
+
+class MusicLoaderGenerator:
+    def __init__(self, 
+        labels,
+        num_workers=0,
+        sample_rate = 16000,
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        ) -> None:
+        self.phoneme_labels, self.note_labels, self.duration_labels, self.slur_labels = labels
+        self.phoneme_look_up = {s: i for i, s in enumerate(self.phoneme_labels)}
+        self.note_look_up = {s: i for i, s in enumerate(self.note_labels)}
+        self.duration_look_up = {s: i for i, s in enumerate(self.duration_labels)}
+        self.slur_look_up = {s: i for i, s in enumerate(self.slur_labels)}
+        self.device = device
+        self.num_workers = num_workers
+        self.sample_rate = sample_rate
+        self.version = '0.01'
+
+    def label2id(self, look_up, str):
+        if isinstance(str[0], list):
+            return [[look_up[i] for i in sub] for sub in str]
+        return [look_up[i] for i in str]
+
+    def id2label(self, labels, idcs):
+        return ''.join([labels[i] for i in idcs])
+
+    def collate_wrapper(self, batch:list): # RAW
+        bs = len(batch)
+        sample_rate = self.sample_rate
+        audio, audio_len, audio_duration, audio_duration_quant, chinese, phoneme,\
+            phoneme_pre, phoneme_post, note, note_pre, note_post, slur = [], [], [], [], [], [], [], [], [], [], [], []
+        for data in batch:
+            audio_f = data['audio']
+            chinese_f = data['chinese']
+            phoneme_f = data['phoneme']
+            note_f = data['note']
+            duration_f = data['duration']
+            duration_cum = duration_f.copy()
+            for i in range(1, len(duration_cum)):
+                duration_cum[i] += duration_cum[i-1]
+            slur_f = data['slur']
+            for i in range(len(chinese_f)):
+                start = 0 if i == 0 else int(duration_cum[i-1]*sample_rate)
+                end = int(duration_cum[i]*sample_rate)
+                wave_chunk = audio_f[0, start: end]
+                audio.append(wave_chunk)
+                audio_len.append(len(wave_chunk))
+                audio_duration.append(duration_f[i])
+                audio_duration_quant.append('%.2f' % duration_f[i])
+                chinese.append(chinese_f[i])
+                phoneme.append(phoneme_f[i])
+                phoneme_pre.append(phoneme_f[i-1]if i>0 else ['SP'])
+                phoneme_post.append(phoneme_f[i+1]if i+1<len(phoneme_f) else ['SP'])
+                note.append(note_f[i])
+                note_pre.append(note_f[i-1]if i>0 else 'rest')
+                note_post.append(note_f[i+1]if i+1<len(note_f) else 'rest')
+                slur.append(slur_f[i])
+        
+        return {
+            'audio': audio,  # 单个字的raw音频
+            'audio_len': audio_len, # 该音频数据长度
+            'audio_duration': audio_duration, # 真实音屏时间长度
+            'audio_duration_quant': audio_duration_quant, # 量化后音屏时间长度
+            'chinese': chinese, # 该音频汉字
+            'phoneme': self.label2id(self.phoneme_look_up, phoneme), # 拼音
+            'phoneme_pre': self.label2id(self.phoneme_look_up, phoneme_pre), # 前一个汉字的拼音
+            'phoneme_post': self.label2id(self.phoneme_look_up, phoneme_post), # 后一个汉字的拼音
+            'note': self.label2id(self.note_look_up, note), # 音调音符
+            'note_pre': self.label2id(self.note_look_up, note_pre),
+            'note_post': self.label2id(self.note_look_up, note_post),
+            'slur': self.label2id(self.slur_look_up, slur), # 是否为延长音
+            }
+
+    def dataloader(self, audioDataset, batch_size, shuffle=True):
+        # k_size is the kernel size for the encoder, for data augmentation
+        self.threshold = audioDataset.dataset.threshold
+        return DataLoader(audioDataset, batch_size,
+                            shuffle, num_workers=self.num_workers, collate_fn=self.collate_wrapper)
+
 
 if __name__ == '__main__':
     # def mel_audio_transform(sample, sample_rate):
