@@ -527,7 +527,7 @@ class OpencpopDataset(SpeechDataset):
 
     def get_audio(self, id):
         wav_path = self.data_path+'wavs/'+str(id)+'.wav'
-        waveform, sample_rate = torchaudio.load(wav_path)
+        waveform, sample_rate = torchaudio.load(wav_path, normalize=True)
         if sample_rate != self.sample_rate:
             waveform = torchaudio.functional.resample(waveform[0].unsqueeze(0), sample_rate, self.sample_rate)
         return waveform
@@ -706,7 +706,7 @@ class MusicLoaderGenerator:
     def __init__(self, 
         labels,
         num_workers=0,
-        sample_rate = 16000,
+        sample_rate = 22050,
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         ) -> None:
         self.phoneme_labels, self.note_labels, self.duration_labels, self.slur_labels = labels
@@ -717,12 +717,15 @@ class MusicLoaderGenerator:
         self.device = device
         self.num_workers = num_workers
         self.sample_rate = sample_rate
+        self.mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,\
+            n_fft=1024,power=1,hop_length=256,win_length=1024, n_mels=80, \
+                f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney")
         self.version = '0.01'
 
     def label2id(self, look_up, str):
         if isinstance(str[0], list):
-            return [[look_up[i] for i in sub] for sub in str]
-        return [look_up[i] for i in str]
+            return torch.stack([torch.tensor([look_up[i] for i in sub]) for sub in str])
+        return torch.tensor([look_up[i] for i in str])
 
     def id2label(self, labels, idcs):
         return ''.join([labels[i] for i in idcs])
@@ -731,7 +734,9 @@ class MusicLoaderGenerator:
         bs = len(batch)
         sample_rate = self.sample_rate
         audio, audio_len, audio_duration, audio_duration_quant, chinese, phoneme,\
-            phoneme_pre, phoneme_post, note, note_pre, note_post, slur = [], [], [], [], [], [], [], [], [], [], [], []
+            phoneme_pre, phoneme_post, note, note_pre, note_post, slur,\
+                mel, mel_len = [], [], [], [], [], [], [], [], [], [], [], [], [], []
+        safe_log = lambda x: torch.log(x+2**(-15))
         for data in batch:
             audio_f = data['audio']
             chinese_f = data['chinese']
@@ -745,6 +750,8 @@ class MusicLoaderGenerator:
             for i in range(len(chinese_f)):
                 start = 0 if i == 0 else int(duration_cum[i-1]*sample_rate)
                 end = int(duration_cum[i]*sample_rate)
+                if (end-start<512):
+                    continue
                 wave_chunk = audio_f[0, start: end]
                 audio.append(wave_chunk)
                 audio_len.append(len(wave_chunk))
@@ -752,12 +759,17 @@ class MusicLoaderGenerator:
                 audio_duration_quant.append('%.2f' % duration_f[i])
                 chinese.append(chinese_f[i])
                 phoneme.append(phoneme_f[i])
-                phoneme_pre.append(phoneme_f[i-1]if i>0 else ['SP'])
-                phoneme_post.append(phoneme_f[i+1]if i+1<len(phoneme_f) else ['SP'])
+                phoneme_pre.append(phoneme_f[i-1]if i>0 else ['SP', '-'])
+                phoneme_post.append(phoneme_f[i+1]if i+1<len(phoneme_f) else ['SP', '-'])
                 note.append(note_f[i])
                 note_pre.append(note_f[i-1]if i>0 else 'rest')
                 note_post.append(note_f[i+1]if i+1<len(note_f) else 'rest')
                 slur.append(slur_f[i])
+                mel_chunk = self.mel_transform(wave_chunk)
+                mel.append(safe_log(mel_chunk).transpose(0,1))
+                mel_len.append(mel_chunk.shape[-1])
+        mel = pad_sequence(mel, batch_first=True, padding_value=torch.log(torch.tensor(2**(-15)))).permute(0,2,1)
+        mel_len = torch.tensor(mel_len)
         
         return {
             'audio': audio,  # 单个字的raw音频
@@ -772,6 +784,8 @@ class MusicLoaderGenerator:
             'note_pre': self.label2id(self.note_look_up, note_pre),
             'note_post': self.label2id(self.note_look_up, note_post),
             'slur': self.label2id(self.slur_look_up, slur), # 是否为延长音
+            'mel': mel,
+            'mel_len': mel_len
             }
 
     def dataloader(self, audioDataset, batch_size, shuffle=True):

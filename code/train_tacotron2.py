@@ -12,6 +12,7 @@ LOG_DIR = './log/tacotron-8-'
 DATALOADER_WORKERS = 8
 CUDA_BATCH_SIZE = 128
 LEARNING_RATE = 0.0001
+SAMPLE_RATE= 22050
 ALPHA = 0.4 # [0, 0.5], 越小越决定性，0表示只依靠org_mel，1表示纯自主预测，建议小于0.5
 
 def save_log(file_name, log, mode='a', path = LOG_DIR):
@@ -55,13 +56,12 @@ def raw_audio_transform(sample, sample_rate=None):
         sample['chinese'] = chinese
         return sample
 
-sample_rate = 16000
 # dataset = AiShell3PersonDataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, \
 #         person_id='SSB0011', sample_rate=sample_rate)
-dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, sample_rate=sample_rate)
+dataset = AiShell3Dataset('/scratch/bh2283/data/data_aishell3/train/', transform=raw_audio_transform, sample_rate=SAMPLE_RATE)
 
 # 注意，这儿使用mel loader，因为这样子可以trim掉空白区域，但是会导致GPU时间降低
-loaderGenerator = MelLoaderGenerator(labels, k_size=256, num_workers=DATALOADER_WORKERS, sample_rate=sample_rate)
+loaderGenerator = MelLoaderGenerator(labels, k_size=256, num_workers=DATALOADER_WORKERS, sample_rate=SAMPLE_RATE)
 # loaderGenerator = RawLoaderGenerator(labels, k_size=5, num_workers=DATALOADER_WORKERS, sample_rate=sample_rate)
 batch_size = CUDA_BATCH_SIZE if device == torch.device("cuda") else 4
 train_set, test_set = dataset.split([1,0])
