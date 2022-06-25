@@ -23,3 +23,5 @@ code/checkpoint/
 data/
 senv/
 .vscode-server/
+quartz_net/checkpoint/
+quartz_net/log/
