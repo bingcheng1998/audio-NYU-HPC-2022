@@ -152,7 +152,9 @@ def merge_note(text, phoneme, note, note_duration, slur_note):
             del text_with_p[i]
             del slur_note[i]
         elif phoneme[i] in FINALS or phoneme[i] in ['AP', 'SP']:
-            phoneme[i] = [phoneme[i], '-']
+            phoneme[i] = [phoneme[i]]
+    if phoneme[0] in FINALS or phoneme[0] in ['AP', 'SP']:
+            phoneme[0] = [phoneme[0]]
     return text_with_p, phoneme, note, note_duration, slur_note
 
 def get_transposed_phoneme_labels():
