@@ -707,12 +707,14 @@ class MusicLoaderGenerator:
         labels,
         num_workers=0,
         sample_rate = 22050,
+        min_range = 512 * 4, # 默认删除过短的音频
+        max_range = 4 * 22050, # 默认删除4秒以上长度的音频
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         ) -> None:
-        self.phoneme_labels, self.note_labels, self.duration_labels, self.slur_labels = labels
+        self.min_range, self.max_range = min_range, max_range
+        self.phoneme_labels, self.note_labels, self.slur_labels = labels
         self.phoneme_look_up = {s: i for i, s in enumerate(self.phoneme_labels)}
         self.note_look_up = {s: i for i, s in enumerate(self.note_labels)}
-        self.duration_look_up = {s: i for i, s in enumerate(self.duration_labels)}
         self.slur_look_up = {s: i for i, s in enumerate(self.slur_labels)}
         self.device = device
         self.num_workers = num_workers
@@ -724,11 +726,18 @@ class MusicLoaderGenerator:
 
     def label2id(self, look_up, str):
         if isinstance(str[0], list):
-            return torch.stack([torch.tensor([look_up[i] for i in sub]) for sub in str])
+            return torch.stack([torch.tensor([look_up[i] for i in sub] if len(sub)==2 else [look_up[sub[0]], look_up['-']]) for sub in str])
         return torch.tensor([look_up[i] for i in str])
 
     def id2label(self, labels, idcs):
         return ''.join([labels[i] for i in idcs])
+
+    def quant(self, duration):
+        min_seg = 512/22050
+        if duration < 2:
+            return int(duration//min_seg)
+        return int(2//min_seg + (duration-2)//(min_seg*2))
+
 
     def collate_wrapper(self, batch:list): # RAW
         bs = len(batch)
@@ -750,17 +759,17 @@ class MusicLoaderGenerator:
             for i in range(len(chinese_f)):
                 start = 0 if i == 0 else int(duration_cum[i-1]*sample_rate)
                 end = int(duration_cum[i]*sample_rate)
-                if (end-start<512):
+                if end-start<self.min_range or end-start>self.max_range:
                     continue
                 wave_chunk = audio_f[0, start: end]
                 audio.append(wave_chunk)
                 audio_len.append(len(wave_chunk))
                 audio_duration.append(duration_f[i])
-                audio_duration_quant.append('%.2f' % duration_f[i])
+                audio_duration_quant.append(self.quant(duration_f[i]))
                 chinese.append(chinese_f[i])
                 phoneme.append(phoneme_f[i])
-                phoneme_pre.append(phoneme_f[i-1]if i>0 else ['SP', '-'])
-                phoneme_post.append(phoneme_f[i+1]if i+1<len(phoneme_f) else ['SP', '-'])
+                phoneme_pre.append(phoneme_f[i-1]if i>0 else ['SP'])
+                phoneme_post.append(phoneme_f[i+1]if i+1<len(phoneme_f) else ['SP'])
                 note.append(note_f[i])
                 note_pre.append(note_f[i-1]if i>0 else 'rest')
                 note_post.append(note_f[i+1]if i+1<len(note_f) else 'rest')
@@ -775,7 +784,7 @@ class MusicLoaderGenerator:
             'audio': audio,  # 单个字的raw音频
             'audio_len': audio_len, # 该音频数据长度
             'audio_duration': audio_duration, # 真实音屏时间长度
-            'audio_duration_quant': audio_duration_quant, # 量化后音屏时间长度
+            'audio_duration_quant': torch.tensor(audio_duration_quant), # 量化后音屏时间长度
             'chinese': chinese, # 该音频汉字
             'phoneme': self.label2id(self.phoneme_look_up, phoneme), # 拼音
             'phoneme_pre': self.label2id(self.phoneme_look_up, phoneme_pre), # 前一个汉字的拼音
@@ -793,6 +802,7 @@ class MusicLoaderGenerator:
         self.threshold = audioDataset.dataset.threshold
         return DataLoader(audioDataset, batch_size,
                             shuffle, num_workers=self.num_workers, collate_fn=self.collate_wrapper)
+
 
 
 if __name__ == '__main__':
