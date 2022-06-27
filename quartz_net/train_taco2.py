@@ -9,11 +9,12 @@ from typing import Tuple, List, Optional, Union, overload
 import os
 from os.path import exists
 
-BATCH_SIZE = 32
-LOG_DIR = './log/tacotron-2-'
+BATCH_SIZE = 16
+LOG_DIR = './log/tacotron-4-'
 DATALOADER_WORKERS = 8
-LEARNING_RATE = 0.001
-LOAD_PATH = './checkpoint/pre.pt'
+LEARNING_RATE = 0.00001
+# LOAD_PATH = './checkpoint/pre.pt'
+LOAD_PATH = './checkpoint/model_temp.pt'
 SAMPLE_RATE= 22050
 
 def save_log(file_name, log, mode='a', path = LOG_DIR):
@@ -69,6 +70,7 @@ class TacotronTail(Tacotron2):
         postnet = None,
     ) -> None:
         _tacotron2_params=_get_taco_params(n_symbols=5) # ignore n_symbols, encoder not used 
+        _tacotron2_params["mask_padding"] = True
         super().__init__(**_tacotron2_params)
 
         embedding_dim = _tacotron2_params['encoder_embedding_dim']
@@ -110,9 +112,9 @@ class TacotronTail(Tacotron2):
             mask = mask.expand(self.n_mels, mask.size(0), mask.size(1))
             mask = mask.permute(1, 0, 2)
 
-            mel_specgram.masked_fill_(mask, 0.0)
-            mel_specgram_postnet.masked_fill_(mask, 0.0)
-            gate_outputs.masked_fill_(mask[:, 0, :], 1e3)
+            mel_specgram = mel_specgram.masked_fill(mask, 0.0)
+            mel_specgram_postnet = mel_specgram_postnet.masked_fill(mask, 0.0)
+            # gate_outputs.masked_fill_(mask[:, 0, :], 1e3)
 
         return mel_specgram, mel_specgram_postnet, gate_outputs, alignments
 
@@ -156,8 +158,9 @@ def load_checkpoint(path):
         save_log(f'e.txt', ['path', path, 'exist, loading...'])
         checkpoint = torch.load(path, map_location=device)
         if 'model_state_dict' in checkpoint:
-            model.decoder.load_state_dict(checkpoint['model_state_dict'], strict=False) # , strict=False?
-            model.postnet.load_state_dict(checkpoint['model_state_dict'], strict=False)
+            model.load_state_dict(checkpoint['model_state_dict'], strict=True)
+            # model.decoder.load_state_dict(checkpoint['model_state_dict'], strict=False) # , strict=False?
+            # model.postnet.load_state_dict(checkpoint['model_state_dict'], strict=False)
 
 load_checkpoint(LOAD_PATH)
 
@@ -165,7 +168,7 @@ params = model.parameters()
 # params = list(model.embedding.parameters())+list(model.encoder.parameters())+list(model.speaker_encoder.parameters())
 # optimizer = torch.optim.SGD(params, lr=LEARNING_RATE, momentum=0.5)
 optimizer = torch.optim.Adam(params, lr=LEARNING_RATE)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
 initial_epoch = 0
 mse_loss = torch.nn.MSELoss()
 bce_loss = torch.nn.BCELoss()
@@ -173,7 +176,8 @@ cos_loss = torch.nn.CosineEmbeddingLoss()
 mean = lambda x: sum(x)/len(x)
 
 def dump_model(EPOCH, LOSS, PATH):
-    torch.save({
+    if device == torch.device("cuda"):
+        torch.save({
             'epoch': EPOCH,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
@@ -203,6 +207,10 @@ def train(epoch=1):
             mel_length = sample_batched['mel_len'].to(device)
 
             # Step 2. Run our forward pass
+            mask = _get_mask_from_lengths(mel_length)
+            mask = mask.expand(80, mask.size(0), mask.size(1))
+            mask = mask.permute(1, 0, 2)
+            mels_tensor = mels_tensor.masked_fill(mask, 0.0)
 
             org_mel, pos_mel, stop_token, _ = model.forward(sample_batched)
             loss1 = mse_loss(mels_tensor, org_mel)
@@ -246,4 +254,4 @@ def train(epoch=1):
         save_log(f'e{epoch}.txt', ['============= Final Test ============='])
         # test_decoder(epoch, 10) # run some sample prediction and see the result
 
-train(1)
+train(200)
