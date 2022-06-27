@@ -743,6 +743,19 @@ class MusicLoaderGenerator:
             return int(duration//min_seg)
         return int(2//min_seg + (duration-2)//(min_seg*2))
 
+    def data_transfer(self, data):
+        data_transferred = {
+            'audio_duration_quant': torch.tensor([self.quant(i) for i in data['audio_duration_quant']]), # 量化后音屏时间长度
+            'chinese': data['chinese'], # 该音频汉字
+            'phoneme': self.deep_label2id(self.phoneme_look_up, data['phoneme']), # 拼音
+            'phoneme_pre': self.deep_label2id(self.phoneme_look_up, data['phoneme_pre']), # 前一个汉字的拼音
+            'phoneme_post': self.deep_label2id(self.phoneme_look_up, data['phoneme_post']), # 后一个汉字的拼音
+            'note': self.label2id(self.note_look_up, data['note']), # 音调音符
+            'note_pre': self.label2id(self.note_look_up, data['note_pre']),
+            'note_post': self.label2id(self.note_look_up, data['note_post']),
+            'slur': self.label2id(self.slur_look_up, data['slur']), # 是否为延长音
+        }
+        return data_transferred
 
     def collate_wrapper(self, batch:list): # RAW
         bs = len(batch)
