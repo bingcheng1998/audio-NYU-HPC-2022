@@ -29,7 +29,7 @@ def save_log(file_name, log, mode='a', path = LOG_DIR):
             f.write(' '.join(log))
             print(' '.join(log))
 
-torch.random.manual_seed(0)
+# torch.random.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 save_log(f'e.txt', ['torch:', torch.__version__])
 save_log(f'e.txt', ['torchaudio:', torchaudio.__version__])
@@ -48,6 +48,7 @@ def dataset_transform(sample, sample_rate=None):
 
 dataset = OpencpopDataset('/scratch/bh2283/data/opencpop/segments/', transform=dataset_transform, sample_rate=SAMPLE_RATE)
 train_set, test_set = dataset.split()
+save_log(f'e.txt', ['train_set:', len(train_set), 'test_set:',len(test_set)])
 
 note_labels = get_pitch_labels()
 phoneme_labels = get_transposed_phoneme_labels()
@@ -61,6 +62,7 @@ labels = (
 loaderGenerator = MusicLoaderGenerator(labels, DATALOADER_WORKERS)
 batch_size = BATCH_SIZE if device == torch.device("cuda") else 4
 train_loader = loaderGenerator.dataloader(train_set, batch_size=batch_size)
+test_loader = loaderGenerator.dataloader(test_set, batch_size=batch_size)
 
 class TacotronTail(Tacotron2):
     def __init__(
@@ -192,6 +194,51 @@ def save_checkpoint(EPOCH, LOSS):
     PATH = f"./checkpoint/model_{EPOCH}_{'%.3f' % LOSS}.pt"
     dump_model(EPOCH, LOSS, PATH)
 
+def threshold_mse_loss(mel1, mel2, threshold=0.2, mask_fill_val=0):
+    # threshold should be in [0,1]
+    # the larger the threshold, the smaller area selected
+    # mel1 [mel_bins, time], mel1 and mel2 should have same time
+    assert mel1.shape[1] == mel2.shape[1]
+    mask1 = mel1 < mel1.mean() + mel1.var()*threshold
+    mask2 = mel2 < mel2.mean() + mel2.var()*threshold
+    and_mask = mask1.bitwise_and(mask2)
+    return mel1.masked_fill(and_mask, mask_fill_val), mel2.masked_fill(and_mask, mask_fill_val)
+
+def mse_total_loss(mels_tensor, org_mel, pos_mel):
+    loss1 = mse_loss(mels_tensor, org_mel)
+    loss1 += mse_loss(mels_tensor, pos_mel)
+    org_mel_masked, pos_mel_masked = threshold_mse_loss(mels_tensor, pos_mel, 0.2)
+    loss1 += mse_loss(org_mel_masked, pos_mel_masked)*2
+    org_mel_masked, pos_mel_masked = threshold_mse_loss(mels_tensor, pos_mel, 0.8)
+    loss1 += mse_loss(org_mel_masked, pos_mel_masked)*5
+    org_mel_masked, pos_mel_masked = threshold_mse_loss(mels_tensor, pos_mel, 2)
+    loss1 += mse_loss(org_mel_masked, pos_mel_masked)*10
+    return loss1
+
+def test():
+    model.eval()
+    batch_test_loss = []
+    batch_bce_loss = []
+    for i_batch, sample_batched in enumerate(test_loader):
+        sample_batched = {
+            k:v.to(device) for k, v in sample_batched.items() if isinstance(v, torch.Tensor)
+        }
+        # Step 1. Prepare Data
+        mels_tensor = sample_batched['mel'].to(device) # [bs, mel_bins, L]
+        mel_length = sample_batched['mel_len'].to(device)
+        # Step 2. Run our forward pass
+        org_mel, pos_mel, stop_token, _ = model.forward(sample_batched)
+        loss1 = mse_total_loss(mels_tensor, org_mel, pos_mel)
+        true_stop_token = torch.zeros(stop_token.shape).to(device)
+        for i in range(true_stop_token.shape[0]):
+            true_stop_token[i][mel_length[i]:]+=1.0
+        loss2 = bce_loss(torch.sigmoid(stop_token), true_stop_token)
+        # Step 3. add all loss
+        loss = loss1 + loss2
+        batch_bce_loss.append(loss2.item())
+        batch_test_loss.append(loss.item())
+    return mean(batch_test_loss), mean(batch_bce_loss)
+
 def train(epoch=1):
     train_loss_q = []
     test_loss_q = []
@@ -207,14 +254,13 @@ def train(epoch=1):
             mel_length = sample_batched['mel_len'].to(device)
 
             # Step 2. Run our forward pass
-            mask = _get_mask_from_lengths(mel_length)
-            mask = mask.expand(80, mask.size(0), mask.size(1))
-            mask = mask.permute(1, 0, 2)
-            mels_tensor = mels_tensor.masked_fill(mask, 0.0)
+            # mask = _get_mask_from_lengths(mel_length)
+            # mask = mask.expand(80, mask.size(0), mask.size(1))
+            # mask = mask.permute(1, 0, 2)
+            # mels_tensor = mels_tensor.masked_fill(mask, 0.0)
 
             org_mel, pos_mel, stop_token, _ = model.forward(sample_batched)
-            loss1 = mse_loss(mels_tensor, org_mel)
-            loss1 += mse_loss(mels_tensor, pos_mel)
+            loss1 = mse_total_loss(mels_tensor, org_mel, pos_mel)
 
             true_stop_token = torch.zeros(stop_token.shape).to(device)
             for i in range(true_stop_token.shape[0]):
@@ -234,24 +280,22 @@ def train(epoch=1):
             batch_train_loss.append(loss.item())
 
             if i_batch % (300 // BATCH_SIZE) == 0: # log about each n data
-                # test_loss = test()
-                test_loss = 0
+                test_loss, test_bce_loss = test()
+                # test_loss = 0
                 train_loss = mean(batch_train_loss)
                 test_loss_q.append(test_loss)
                 train_loss_q.append(train_loss)
                 save_log(f'e{epoch}.txt', ['🟣 epoch', epoch, 'data', i_batch*BATCH_SIZE, 
                     'lr', scheduler.get_last_lr(), 
                     'train_loss', '{:.3f}'.format(train_loss), 
-                    'test_loss', test_loss, 
-                    'bce_loss', '{:.3f}'.format(loss2.item())])
+                    'test_loss', '{:.3f}'.format(test_loss), 
+                    'test_bce_loss', '{:.3f}'.format(test_bce_loss)])
                 save_temp(epoch, test_loss) # save temp checkpoint
-                # test_decoder(epoch, 5)
-            
-            # exit()
+            exit()
             
         # scheduler.step()
         save_checkpoint(epoch, mean(test_loss_q))
         save_log(f'e{epoch}.txt', ['============= Final Test ============='])
-        # test_decoder(epoch, 10) # run some sample prediction and see the result
+
 
 train(200)

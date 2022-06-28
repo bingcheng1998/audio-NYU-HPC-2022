@@ -797,7 +797,8 @@ class MusicLoaderGenerator:
                 mel_chunk = self.mel_transform(wave_chunk)
                 mel.append(safe_log(mel_chunk).transpose(0,1))
                 mel_len.append(mel_chunk.shape[-1])
-        mel = pad_sequence(mel, batch_first=True, padding_value=torch.log(torch.tensor(2**(-15)))).permute(0,2,1)
+        # mel = pad_sequence(mel, batch_first=True, padding_value=torch.log(torch.tensor(2**(-15)))).permute(0,2,1)
+        mel = pad_sequence(mel, batch_first=True, padding_value=0).permute(0,2,1)
         mel_len = torch.tensor(mel_len)
         
         return {
