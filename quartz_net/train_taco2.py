@@ -209,9 +209,9 @@ def mse_total_loss(mels_tensor, org_mel, pos_mel):
     loss1 += mse_loss(mels_tensor, pos_mel)
     org_mel_masked, pos_mel_masked = threshold_mse_loss(mels_tensor, pos_mel, 0.2)
     loss1 += mse_loss(org_mel_masked, pos_mel_masked)*2
-    org_mel_masked, pos_mel_masked = threshold_mse_loss(mels_tensor, pos_mel, 0.8)
+    org_mel_masked, pos_mel_masked = threshold_mse_loss(mels_tensor, pos_mel, 0.5)
     loss1 += mse_loss(org_mel_masked, pos_mel_masked)*5
-    org_mel_masked, pos_mel_masked = threshold_mse_loss(mels_tensor, pos_mel, 2)
+    org_mel_masked, pos_mel_masked = threshold_mse_loss(mels_tensor, pos_mel, 0.9)
     loss1 += mse_loss(org_mel_masked, pos_mel_masked)*10
     return loss1
 
@@ -291,7 +291,8 @@ def train(epoch=1):
                     'test_loss', '{:.3f}'.format(test_loss), 
                     'test_bce_loss', '{:.3f}'.format(test_bce_loss)])
                 save_temp(epoch, test_loss) # save temp checkpoint
-            exit()
+                if device != torch.device("cuda"):
+                    exit()
             
         # scheduler.step()
         save_checkpoint(epoch, mean(test_loss_q))

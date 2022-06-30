@@ -1,5 +1,5 @@
 # 训练汉语拼音的wav2vec模型
-
+conda activate /scratch/bh2283/penv
 ## 数据集
 - Primewords Chinese Corpus Set 1 https://www.openslr.org/resources/47/ 有用户区分
 - Free ST Chinese Mandarin Corpus ST-CMDS https://us.openslr.org/resources/38/
@@ -59,13 +59,18 @@
 ## 新的TODO
   - [x] 单字生成（预）
     - [x] 直接使用歌唱数据集训练个tacotron2生成器
-    - [ ] loss加权，对于亮度高的部分加重权重
+    - [x] loss加权，对于亮度高的部分加重权重
   - [ ] 单字分割
+    - [ ] 生成讯飞单字数据集
+    - [ ] 构建dataloader，使得可以生成带有精确区间的单字预测
     - [ ] 新的预训练模型，使得长度可以正确对应
     - [ ] 音乐数据集制作，可以生成所需的每个字对应的区间
   - [ ] speaker embedding
   - [ ] 单字生成
+    - [ ] 我们之前一直是使用mel vocoder，但是速度慢且受限于人，所以尝试使用fft直接生成，但是参考mel来设置频域loss加权
   - [ ] 唱段生成
+    - [ ] 循环生成，从唱段预测label，然后生成唱段并且使得mel loss小，再从mel预测label
+  
 
 
 ----
