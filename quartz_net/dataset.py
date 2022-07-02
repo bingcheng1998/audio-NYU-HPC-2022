@@ -709,6 +709,7 @@ class MusicLoaderGenerator:
         sample_rate = 22050,
         min_range = 512 * 6, # 默认删除过短的音频
         max_range = 4 * 22050, # 默认删除4秒以上长度的音频
+        use_mel=True, # other than fft
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         ) -> None:
         self.min_range, self.max_range = min_range, max_range
@@ -722,6 +723,9 @@ class MusicLoaderGenerator:
         self.mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,\
             n_fft=1024,power=1,hop_length=256,win_length=1024, n_mels=80, \
                 f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney")
+        self.fft = torchaudio.transforms.Spectrogram(n_fft=1024,hop_length=256,\
+            win_length=None)
+        self.use_mel = use_mel
         self.version = '0.01'
 
     def label2id(self, look_up, str):
@@ -794,8 +798,12 @@ class MusicLoaderGenerator:
                 note_pre.append(note_f[i-1]if i>0 else 'rest')
                 note_post.append(note_f[i+1]if i+1<len(note_f) else 'rest')
                 slur.append(slur_f[i])
-                mel_chunk = self.mel_transform(wave_chunk)
-                mel.append(safe_log(mel_chunk).transpose(0,1))
+                if self.use_mel:
+                    mel_chunk = self.mel_transform(wave_chunk)
+                    mel.append(safe_log(mel_chunk).transpose(0,1))
+                else:
+                    mel_chunk = self.fft(wave_chunk)
+                    mel.append(safe_log(mel_chunk).transpose(0,1))
                 mel_len.append(mel_chunk.shape[-1])
         # mel = pad_sequence(mel, batch_first=True, padding_value=torch.log(torch.tensor(2**(-15)))).permute(0,2,1)
         mel = pad_sequence(mel, batch_first=True, padding_value=0).permute(0,2,1)
