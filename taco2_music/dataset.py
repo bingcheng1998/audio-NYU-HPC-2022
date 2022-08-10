@@ -109,20 +109,22 @@ class MusicLoaderGenerator:
     def __init__(self, 
         labels,
         num_workers=0,
-        sample_rate = 22050,
+        sample_rate = 44100,
         min_range = 512 * 6, # 默认删除过短的音频
-        max_range = 4 * 22050, # 默认删除4秒以上长度的音频
+        max_range = None, # 默认删除4秒以上长度的音频
         use_mel=True, # other than fft
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         ) -> None:
-        self.min_range, self.max_range = min_range, max_range
+        self.sample_rate = sample_rate
+        self.min_range = min_range
+        if not max_range:
+            max_range = self.sample_rate * 4 # 4 sec
         self.phoneme_labels, self.note_labels, self.slur_labels = labels
         self.phoneme_look_up = {s: i for i, s in enumerate(self.phoneme_labels)}
         self.note_look_up = {s: i for i, s in enumerate(self.note_labels)}
         self.slur_look_up = {s: i for i, s in enumerate(self.slur_labels)}
         self.device = device
         self.num_workers = num_workers
-        self.sample_rate = sample_rate
         self.mel_transform = torchaudio.transforms.MelSpectrogram(sample_rate=sample_rate,\
             n_fft=1024,power=1,hop_length=256,win_length=1024, n_mels=80, \
                 f_min=0.0, f_max=8000.0, mel_scale="slaney", norm="slaney")
@@ -145,15 +147,14 @@ class MusicLoaderGenerator:
         return ''.join([labels[i] for i in idcs])
 
     def quant(self, duration):
-        min_seg = 512/22050
+        min_seg = 512/44100
         if duration < 2:
             return int(duration//min_seg)
         return int(2//min_seg + (duration-2)//(min_seg*2))
 
     def data_transfer(self, data):
         data_transferred = {
-            'audio_duration': torch.tensor(data['audio_duration']),
-            'audio_duration_quant': torch.tensor([self.quant(i) for i in data['audio_duration_quant']]), # 量化后音屏时间长度
+            'audio_duration': torch.tensor(data['audio_duration']).reshape([-1,1]),
             'chinese': data['chinese'], # 该音频汉字
             'phoneme': self.deep_label2id(self.phoneme_look_up, data['phoneme']), # 拼音
             'phoneme_pre': self.deep_label2id(self.phoneme_look_up, data['phoneme_pre']), # 前一个汉字的拼音
@@ -215,7 +216,7 @@ class MusicLoaderGenerator:
         return {
             'audio': audio,  # 单个字的raw音频
             'audio_len': audio_len, # 该音频数据长度
-            'audio_duration': torch.tensor(audio_duration), # 真实音屏时间长度
+            'audio_duration': torch.tensor(audio_duration).reshape([-1,1]), # 真实音屏时间长度
             'audio_duration_quant': torch.tensor(audio_duration_quant), # 量化后音屏时间长度
             'chinese': chinese, # 该音频汉字
             'phoneme': self.deep_label2id(self.phoneme_look_up, phoneme), # 拼音
@@ -249,7 +250,7 @@ if __name__ == '__main__':
         sample['slur'] = slur_note
         return sample
 
-    dataset = OpencpopDataset('/scratch/bh2283/data/opencpop/segments/', transform=dataset_transform, sample_rate=22050)
+    dataset = OpencpopDataset('/scratch/bh2283/data/opencpop/segments/', transform=dataset_transform, sample_rate=44100)
     train_set, test_set = dataset.split()
     note_labels = get_pitch_labels()
     phoneme_labels = get_transposed_phoneme_labels()

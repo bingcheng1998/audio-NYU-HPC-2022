@@ -25,3 +25,5 @@ senv/
 .vscode-server/
 quartz_net/checkpoint/
 quartz_net/log/
+taco2_music/checkpoint/*.pt
+taco2_music/log/*.txt
